@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "role": "development-workstation",
+  "local_management_center": "disabled",
+  "integration_testing": "external_server",
+  "allowed_local_work": [
+    "source editing",
+    "build/package",
+    "offline unit checks"
+  ],
+  "note": "This is development workflow policy, not an endpoint authority or packaged product setting."
+}

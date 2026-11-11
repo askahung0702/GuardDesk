@@ -1,0 +1,6 @@
+{
+  "note": "Documentation only. Generate real TLS/identity/settings using the reviewed setup on the external Server.",
+  "endpoint_url": "https://guarddesk.example.invalid:8787",
+  "console_loopback_url": "http://127.0.0.1:8788",
+  "data_directory_example": "D:/GuardDeskData"
+}

@@ -1,0 +1,40 @@
+"""Execute the remote display diagnostic freshness contract from the actual product PYZ, offline only."""
+import argparse
+import hashlib
+import importlib.abc
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import unittest
+from PyInstaller.archive.readers import CArchiveReader
+
+def main():
+    p=argparse.ArgumentParser();p.add_argument('--product',type=Path,required=True);p.add_argument('--report',type=Path,required=True);a=p.parse_args()
+    product=a.product.resolve(strict=True);report=a.report.absolute();workspace=Path(__file__).resolve().parents[3]
+    if not product.is_relative_to(workspace/'runtime') or report.exists() or not report.is_relative_to(workspace/'runtime'):raise ValueError('New owned evidence required')
+    archive=CArchiveReader(str(product/'GuardDesk.exe'));pyz=archive.open_embedded_archive(next(n for n in archive.toc if n.startswith('PYZ')))
+    if any(n=='guarddesk' or n.startswith('guarddesk.') for n in sys.modules):raise ValueError('Fresh interpreter required')
+    required={'guarddesk.remote_trial','guarddesk.remote_native_broker'}
+    if not required<=pyz.toc.keys():raise ValueError('Remote diagnostic module missing from actual EXE: '+str(required-pyz.toc.keys()))
+    class Frozen(importlib.abc.MetaPathFinder,importlib.abc.Loader):
+        def find_spec(self,name,path=None,target=None):
+            if name in ('guarddesk','tools') or name.startswith(('guarddesk.','tools.')):
+                if name not in pyz.toc:raise ModuleNotFoundError('Missing frozen module '+name)
+                return importlib.util.spec_from_loader(name,self,is_package=pyz.toc[name][0] in (1,3))
+        def create_module(self,spec):return None
+        def exec_module(self,module):
+            module.__file__=str(product/'_internal'/module.__name__.replace('.','/'))+'.py'
+            code=pyz.extract(module.__name__)
+            if code is not None:exec(code,module.__dict__)
+    sys.meta_path.insert(0,Frozen())
+    spec=importlib.util.spec_from_file_location('owned_remote_diagnostic_tests',Path(__file__).resolve().parents[1]/'tests/test_remote_trial.py')
+    fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+    with report.with_suffix('.log').open('x',encoding='utf-8') as log:
+        result=unittest.TextTestRunner(stream=log,verbosity=2).run(unittest.defaultTestLoader.loadTestsFromName('TrialTest.test_native_diagnostics_distinguish_ended_and_stale_contexts',fixture))
+    value={'passed':result.wasSuccessful() and not result.skipped,'tests':result.testsRun,'errors':len(result.errors),'failures':len(result.failures),
+           'runtime_sha256':hashlib.sha256((product/'GuardDesk.exe').read_bytes()).hexdigest(),'required_modules':sorted(required),
+           'source_fallback_allowed':False,'center_started':False,'installed_Agent_changed':False,'SYSTEM_task_created':False}
+    report.write_text(json.dumps(value,indent=2),encoding='utf-8');print(json.dumps(value));return int(not value['passed'])
+
+if __name__=='__main__':raise SystemExit(main())

@@ -1,0 +1,16 @@
+#pragma once
+#include "ipc_wire.hpp"
+
+namespace remote::ipc {
+constexpr std::size_t media_header_bytes=64,media_max_payload=65536;
+enum class MediaDirection{broker_to_media,media_to_broker};
+enum class MediaKind:std::uint16_t{grant=1,signal=2,network_control=3,consumed=4,stop=5,stats=6,configuration=7,relay_configuration=8};
+struct MediaMessage{
+    MediaKind kind{};Session session{};std::uint64_t transport=0,sequence=0;
+    std::vector<std::uint8_t> payload;
+};
+struct MediaHeader{MediaMessage message;std::uint32_t payload_bytes=0;};
+MediaHeader media_header(const std::array<std::uint8_t,media_header_bytes>& bytes,MediaDirection direction);
+MediaMessage media_message(const std::vector<std::uint8_t>& bytes,MediaDirection direction);
+std::vector<std::uint8_t> encode_media(const MediaMessage& message,MediaDirection direction);
+}

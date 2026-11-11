@@ -1,0 +1,112 @@
+{
+  "format": 1,
+  "requirements": [
+    "REMOTE-PERF-01",
+    "REMOTE-UAC-01"
+  ],
+  "status": "development_only_not_deployable",
+  "source": "doc/108-remote-performance-and-uac-architecture-review.md",
+  "M2": {
+    "required": [
+      "authenticated_private_IPC",
+      "MIS_center_broker_worker_real_UAC",
+      "standard_user_and_admin_consent",
+      "elevated_application_after_UAC",
+      "default_secure_default_same_consent",
+      "epoch_presented_before_input",
+      "no_key_replay",
+      "switch_logon_lock_logout",
+      "stop_revoke_disconnect",
+      "exact_frozen_source_check"
+    ],
+    "passed_complete": false
+  },
+  "M3": {
+    "required": [
+      "pinned_dependencies_build_and_license_inventory",
+      "native_capture_cursor_codec_renderer",
+      "DTLS_SRTP_video_and_ordered_control",
+      "direct_LAN_and_reviewed_relay",
+      "Office_4K_text_DPI_display_change",
+      "GPU_and_no_GPU",
+      "UAC_with_live_media",
+      "four_sessions_and_event_ingestion_load",
+      "one_percent_loss_50ms_RTT_and_bandwidth_limit"
+    ],
+    "reference": {
+      "width": 1920,
+      "height": 1080,
+      "minimum_logical_cores": 4,
+      "minimum_RAM_GiB": 8,
+      "LAN_RTT_max_ms": 10,
+      "duration_minutes_each": 10,
+      "minimum_actions_each": 500,
+      "Windows": [
+        "10",
+        "11"
+      ]
+    },
+    "targets": {
+      "moving_min_fps": 15,
+      "hardware_fps_goal": 30,
+      "input_to_actual_present_p95_max_ms": 200,
+      "hardware_endpoint_incremental_machine_CPU_mean_max_percent": 10,
+      "remote_group_private_bytes_max": 314572800,
+      "reachable_stop_revoke_max_ms": 1000,
+      "disconnected_control_lease_max_ms": 5000
+    },
+    "synthetic_codec_benchmark_is_acceptance": false,
+    "passed_complete": false
+  },
+  "M4": {
+    "required": [
+      "Server_Agent_MIS_mixed_versions",
+      "real_downloaded_installer",
+      "old_updater_executes_candidate",
+      "next_upgrade_works",
+      "failed_health_rolls_back_whole_cohort",
+      "remote_children_exit_before_switch",
+      "real_ACL_and_existing_cache_scale",
+      "peak_download_extract_stage_rollback_capacity",
+      "account_switch_preserves_machine_identity_and_queues",
+      "artifact_hashes_SBOM_signing_Defender",
+      "single_endpoint_then_small_batch"
+    ],
+    "legacy_limits": {
+      "zip_bytes": 67108864,
+      "extracted_bytes": 536870912,
+      "note": "Existing protocol-1 executor limits; no increase claimed and no automatic cache deletion authorized by this file."
+    },
+    "passed_complete": false
+  },
+  "company_product_changed": false,
+  "formal_release_ready": false,
+  "offline_evidence": {
+    "scope": "Owned synthetic data, private workspace fixtures and localhost only; not field acceptance",
+    "Python_receipt": "runtime/remote-m2-source-next-010.json",
+    "native_receipt": "runtime/remote-m2-native-build-019.json",
+    "WebRTC_receipt": "runtime/webrtc-owned-build-040.json",
+    "cohort": "runtime/remote-next-cohort-003/cohort-preview.json",
+    "frozen_product": "runtime/remote-next-product-002/receipt.json",
+    "frozen_MIS": "runtime/owned-mis-native-frozen-005.result.json",
+    "actual_frozen_center_download": "runtime/remote-next-frozen-center-001/receipt.json",
+    "downloaded_bytes_reread": "runtime/remote-frozen-download-review-002.json",
+    "native_license_inputs": "evidence/maintenance/remote-next-m2-20261030/webrtc-build-input-inventory-005.json",
+    "old_066_protocol_signature_extract_passed": true,
+    "old_installed_SYSTEM_upgrade_passed": false,
+    "endpoint_update_zip_bytes": 39269706,
+    "endpoint_expanded_bytes": 75030290,
+    "endpoint_files": 1078,
+    "existing_release_headroom_percent": 10,
+    "headroom_gate_passed": true,
+    "field_cache_capacity_passed": false
+  },
+  "current_limits": {
+    "capture_output": "single unrotated output; 4K source resized on GPU to at most 1920x1080 before encoding",
+    "cursor": "at most 64x64 BGRA; unsupported mono XOR or oversize has explicit fallback",
+    "hardware_encoding": "software fallback passed; actual hardware frames=0 on development host",
+    "relay": "private IPv4 opt-in TLS with builtin roots; company private CA and actual NAT not accepted",
+    "driver_calls": "COM/GPU calls are not proven hard-interruptible",
+    "legacy_image_timing": "007/008 failed; later reruns passed without lowering assertions; root cause remains unconfirmed"
+  }
+}

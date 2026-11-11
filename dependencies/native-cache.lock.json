@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "baseline": "0.4.105/001",
+  "purpose": "Optional exact-source artifact reuse; not new native runtime acceptance",
+  "CMake": {
+    "receipt": "runtime/remote-m2-native-build-056.json",
+    "sha256": "c74e5e35ab484cab2bde5bb28544bd48d011fa348ed7cc1fa262c0f681e5a6e7",
+    "artifacts": "runtime/remote-next-m3-build/Release"
+  },
+  "WebRTC": {
+    "receipt": "runtime/webrtc-owned-build-067.json",
+    "sha256": "4d92bd4690539b894be467b231846287c038b8f19288cc610cb7a719870b71d7",
+    "artifacts": "runtime/w/src/out/GuardDesk",
+    "revision": "3178a2873c9226a20f678ac902ed979272be0cff"
+  },
+  "service": {
+    "receipt": "runtime/remote-service-build-012/receipt.json",
+    "sha256": "734351018e19bbe15481b2a68015af55b28039d50096c0a2264c65fc15f24699",
+    "artifacts": "runtime/remote-service-build-012/Release"
+  }
+}

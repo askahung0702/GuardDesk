@@ -1,0 +1,47 @@
+{
+  "passed": true,
+  "official_script_sha256": "8025e316e60b5e35d7b3beb3ee30e08c5db29e33ddbf46143df737e74a78b707",
+  "adapter_only_change": "GN command adds original build root-target and uses pinned gn.exe",
+  "targets": [
+    "//guarddesk_remote:GuardDeskRemoteMedia",
+    "//guarddesk_remote:GuardDeskMisNative"
+  ],
+  "GN": {
+    "//guarddesk_remote:GuardDeskRemoteMedia": {
+      "command": [
+        "<checkout>\\runtime\\w\\src\\buildtools\\win\\gn.exe",
+        "desc",
+        "--root-target=//guarddesk_remote:owned_probes",
+        "--all",
+        "--format=json",
+        "<checkout>\\runtime\\w\\src\\out\\GuardDesk",
+        "//guarddesk_remote:GuardDeskRemoteMedia"
+      ],
+      "exit": 0,
+      "json_sha256": "0fd2aff5c3affa7e6de0ccdb7e6549672ed4f2a91426bf48364ed9481514a1d8"
+    },
+    "//guarddesk_remote:GuardDeskMisNative": {
+      "command": [
+        "<checkout>\\runtime\\w\\src\\buildtools\\win\\gn.exe",
+        "desc",
+        "--root-target=//guarddesk_remote:owned_probes",
+        "--all",
+        "--format=json",
+        "<checkout>\\runtime\\w\\src\\out\\GuardDesk",
+        "//guarddesk_remote:GuardDeskMisNative"
+      ],
+      "exit": 0,
+      "json_sha256": "e5a958f90826724d15d338dfb7aef05054d246e14088943156d4deafb207c1f6"
+    }
+  },
+  "legal_approval": false,
+  "patent_approval": false,
+  "final_product_SBOM": false,
+  "notice": {
+    "sha256": "2dfd286fd60c7fef0d49e4030be7036b0837c0bd423ddbb2e9775d61e78bda5e",
+    "bytes": 132816
+  },
+  "public_metadata_sanitized": true,
+  "public_snapshot_build_validation_performed": false,
+  "note_for_public_source": "Historical generator result; machine-local command prefixes redacted. This is not a new public build or field-acceptance receipt."
+}

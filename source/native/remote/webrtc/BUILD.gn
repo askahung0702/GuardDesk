@@ -1,0 +1,179 @@
+import("//webrtc.gni")
+
+rtc_executable("remote_transport_probe") {
+  sources = [ "transport_probe.cc" ]
+  deps = [
+    "//api:create_modular_peer_connection_factory",
+    "//api:data_channel_interface",
+    "//api:jsep",
+    "//api:peer_connection_interface",
+    "//api:scoped_refptr",
+    "//api:make_ref_counted",
+    "//api/environment:environment_factory",
+    "//p2p:basic_packet_socket_factory",
+    "//rtc_base:network",
+    "//rtc_base:logging",
+    "//rtc_base:ssl_adapter",
+    "//rtc_base:threading",
+  ]
+}
+
+rtc_library("mf_codec_adapter") {
+  # The staging tool copies our MF sources into the owned vendor-tree folder.
+  sources = [ "mf_codec_adapter.cc", "mf_codec_adapter.hpp", "codec.cpp", "codec.hpp" ]
+  include_dirs = [ "." ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [
+    ":frame_protocol",
+    "//api/video:video_frame",
+    "//common_video",
+    "//modules/video_coding:video_codec_interface",
+    "//third_party/libyuv",
+    "//rtc_base:threading",
+  ]
+  public_deps = [ "//api/video_codecs:video_codecs_api" ]
+  libs = [ "mfplat.lib", "mfuuid.lib", "wmcodecdspuuid.lib", "d3d11.lib", "ole32.lib", "oleaut32.lib" ]
+}
+
+rtc_executable("remote_mf_codec_probe") {
+  sources = [ "mf_codec_probe.cc" ]
+  deps = [ ":mf_codec_adapter", "//api/environment:environment_factory", "//api:make_ref_counted",
+    "//api/video:video_frame", "//modules/video_coding:video_codec_interface" ]
+}
+
+group("owned_probes") {
+  testonly = true
+  deps = [ ":remote_transport_probe", ":remote_mf_codec_probe", ":remote_video_probe", ":remote_control_probe", ":remote_pipeline_probe", ":remote_owned_handoff_probe", ":product_media" ]
+}
+
+rtc_executable("remote_control_probe") {
+  sources = [ "transport_probe.cc", "owned_control_probe.hpp", "ipc_wire.cpp", "ipc_wire.hpp" ]
+  defines = [ "GD_OWNED_WIRE_PROBE" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [
+    "//api:create_modular_peer_connection_factory", "//api:data_channel_interface",
+    "//api:jsep", "//api:peer_connection_interface", "//api:scoped_refptr", "//api:make_ref_counted",
+    "//api/environment:environment_factory", "//p2p:basic_packet_socket_factory",
+    "//rtc_base:network", "//rtc_base:logging", "//rtc_base:ssl_adapter", "//rtc_base:threading", "//rtc_base:async_socket",
+  ]
+}
+
+rtc_executable("remote_video_probe") {
+  sources = [ "transport_probe.cc", "owned_video_probe.hpp" ]
+  defines = [ "GD_OWNED_VIDEO_PROBE" ]
+  deps = [
+    ":mf_codec_adapter",
+    "//api:enable_media", "//api:create_modular_peer_connection_factory",
+    "//api:data_channel_interface", "//api:jsep", "//api:peer_connection_interface",
+    "//api:scoped_refptr", "//api:make_ref_counted", "//api:rtp_transceiver_interface",
+    "//api/audio:create_audio_device_module", "//api/audio_codecs:audio_codecs_api",
+    "//api/environment:environment_factory", "//api/video:adapted_video_track_source",
+    "//api/video:video_frame", "//p2p:basic_packet_socket_factory",
+    "//rtc_base:network", "//rtc_base:logging", "//rtc_base:ssl_adapter", "//rtc_base:threading", "//rtc_base:async_socket",
+  ]
+  libs = [ "mfplat.lib", "mfuuid.lib", "ole32.lib" ]
+}
+
+rtc_library("native_frame_bridge") {
+  sources = [ "frame_bridge.cc", "frame_bridge.hpp", "frame_binding.hpp",
+    "relay_policy.cpp", "relay_policy.hpp", "cursor.cpp", "cursor.hpp", "frame_pool.cpp", "frame_pool.hpp", "capture.hpp", "ipc_wire.hpp", "ipc_peer.cpp", "ipc_peer.hpp",
+    "viewer.cpp", "viewer.hpp", "render.cpp", "render.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":frame_protocol", "//api/video:adapted_video_track_source", "//api/video:video_frame", "//third_party/libyuv", "//system_wrappers" ]
+  libs = [ "advapi32.lib", "d3d11.lib", "dxgi.lib", "d3dcompiler.lib", "user32.lib" ]
+}
+
+rtc_library("frame_protocol") {
+  sources = [ "frame_binding.cpp", "frame_binding.hpp", "h264_frame_binding.cpp", "h264_frame_binding.hpp", "frame_pool.hpp", "capture.hpp", "ipc_wire.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+}
+
+rtc_executable("remote_pipeline_probe") {
+  sources = [ "transport_probe.cc", "owned_video_probe.hpp" ]
+  defines = [ "GD_OWNED_VIDEO_PROBE", "GD_OWNED_PIPELINE_PROBE" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":native_frame_bridge", ":mf_codec_adapter",
+    "//api:enable_media", "//api:create_modular_peer_connection_factory",
+    "//api:data_channel_interface", "//api:jsep", "//api:peer_connection_interface",
+    "//api:scoped_refptr", "//api:make_ref_counted", "//api:rtp_transceiver_interface",
+    "//api/audio:create_audio_device_module", "//api/audio_codecs:audio_codecs_api",
+    "//api/environment:environment_factory", "//api/video:adapted_video_track_source",
+    "//api/video:video_frame", "//p2p:basic_packet_socket_factory", "//rtc_base:network",
+    "//rtc_base:logging", "//rtc_base:ssl_adapter", "//rtc_base:threading", "//rtc_base:async_socket" ]
+  libs = [ "mfplat.lib", "mfuuid.lib", "ole32.lib" ]
+}
+
+rtc_library("product_media_peer") {
+  sources = [ "media_peer.cc", "media_peer.hpp", "network_guard.cc", "network_guard.hpp", "ipc_wire.cpp", "ipc_wire.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":native_frame_bridge", ":mf_codec_adapter",
+    "//api:enable_media", "//api:create_modular_peer_connection_factory", "//api:data_channel_interface",
+    "//api:jsep", "//api:peer_connection_interface", "//api:scoped_refptr", "//api:make_ref_counted",
+    "//api:rtp_transceiver_interface", "//api/audio:create_audio_device_module", "//api/audio_codecs:audio_codecs_api",
+    "//api/environment:environment_factory", "//p2p:basic_packet_socket_factory", "//rtc_base:network",
+    "//rtc_base:logging", "//rtc_base:ssl_adapter", "//rtc_base:threading", "//rtc_base:async_socket" ]
+  libs = [ "iphlpapi.lib", "mfplat.lib", "mfuuid.lib", "ole32.lib" ]
+}
+rtc_shared_library("GuardDeskMisNative") {
+  sources = [ "mis_native.cc", "mis_native.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":product_media_peer", ":native_frame_bridge" ]
+  libs = [ "user32.lib" ]
+}
+rtc_executable("remote_media_peer_probe") {
+  sources = [ "media_peer_probe.cc", "media_wire.cpp", "session.cpp", "input.cpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":product_media_peer", ":GuardDeskMisNative", ":native_frame_bridge" ]
+  libs = [ "user32.lib" ]
+}
+rtc_executable("remote_owned_handoff_probe") {
+  testonly = true
+  sources = [ "owned_handoff_probe.cc", "session.cpp", "session.hpp", "input.cpp", "input.hpp", "video_geometry.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":product_media_peer", ":native_frame_bridge" ]
+  libs = [ "user32.lib" ]
+}
+group("product_media") { testonly = true
+  deps = [ ":remote_relay_probe", ":remote_media_token_probe", ":remote_hardware_codec_probe", ":remote_media_peer_probe", ":GuardDeskMisNative", ":GuardDeskRemoteMedia" ] }
+
+
+rtc_executable("GuardDeskRemoteMedia") {
+  sources = [ "media_entry.cc", "cohort.cpp", "cohort.hpp", "launch_capsule.cpp", "launch_capsule.hpp", "broker_api.hpp",
+    "ipc_channel.cpp", "ipc_channel.hpp", "media_wire.cpp", "media_wire.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":product_media_peer", ":native_frame_bridge" ]
+  libs = [ "advapi32.lib", "wtsapi32.lib", "userenv.lib", "bcrypt.lib" ]
+}
+
+rtc_executable("remote_hardware_codec_probe") {
+  sources = [ "mf_hardware_probe.cc" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":mf_codec_adapter" ]
+}
+
+rtc_executable("remote_media_token_probe") {
+  deps = []
+  sources = [ "media_token_probe.cc", "media_entry_token.hpp" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  libs = [ "advapi32.lib" ]
+}
+
+rtc_executable("remote_relay_probe") {
+  testonly = true
+  sources = [ "relay_probe.cc" ]
+  suppressed_configs += [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  deps = [ ":product_media_peer", ":native_frame_bridge", "//p2p:p2p_server_utils", "//api/environment:environment_factory", "//rtc_base:threading", "//rtc_base:ssl_adapter" ]
+}

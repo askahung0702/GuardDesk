@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "compiler": "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+  "compiler_sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+  "internal_trial_only": true,
+  "defender_scan_required": true,
+  "actual_zip_acl_cmd_probe_required": true
+}

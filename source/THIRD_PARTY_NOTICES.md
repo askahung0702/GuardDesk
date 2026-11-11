@@ -1,0 +1,12 @@
+# Third-party components
+
+GuardDesk is independently implemented. IP-guard is referenced only as the requirements source; no vendor code, artwork, trademarks as product branding, or proprietary file format is bundled.
+
+The isolated candidate uses Python 3.13.2, cryptography 50.0.2, CFFI 2.0.0, Pillow 13.0.0, Tcl/Tk 8.6 and a PyInstaller 6.21.0 bootloader. The closed build environment does not include the former ambient pyreadline3 dependency. License texts in each final artifact must be checked against its actual dependency inventory. Python's license file includes notices for its bundled components; the Python runtime also includes SQLite and Windows runtime libraries. Cryptography uses a compiled Rust/OpenSSL backend; its license notices are included in the cryptography distribution licenses. Pillow's wheel license directory includes its compiled imaging library notices. Tcl/Tk license texts are included with the `_internal/_tcl_data` and `_internal/_tk_data` runtime data. This statement does not retroactively change notices or contents in older sealed packages.
+
+PyInstaller's bootloader license includes its exception for distributing bundled applications; consult the included COPYING.txt. This file records bundled third-party components and does not grant a new license to the company's application code. Before broader distribution, review all transitive compiled dependencies and corporate licensing requirements.
+
+Exact observed build versions are in `build-info.json` inside the Windows package. Rebuild using the documented build toolchain and collect licenses from that environment again. Tcl 8.6.15's license is retained in `tools/licenses/Tcl-8.6.15.license.terms` from the upstream `tcltk/tcl` core-8-6-15 tag and copied into the Windows package's `licenses/`; Tk's license is copied from the actual bundled runtime.
+
+GuardDesk 0.4.49 also includes its own GuardDeskFileTrace.dll, built from native/document_trace.cpp with Microsoft Visual C++ 14.29.30133 and Windows SDK 10.0.19041.0. The /MT build links the Microsoft C/C++ runtime statically; Windows ETW/TDH APIs are system dependencies. Compiler and SDK executables are not redistributed. Source, compiler and DLL hashes are recorded in guarddesk/windows/native/document-trace-build.json. Applicable Microsoft toolchain and runtime redistribution terms still require company review before broader release; this notice and build-info are not a complete transitive SBOM.
+

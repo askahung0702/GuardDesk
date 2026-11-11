@@ -1,0 +1,22 @@
+{
+  "purpose": "M3 maintained libwebrtc Windows build prerequisite",
+  "current": {"visual_studio": "2019", "windows_sdk": "10.0.19041.0"},
+  "proposed": {
+    "visual_studio": "2026 Build Tools, side by side with 2019",
+    "components": ["C++ desktop build tools", "MFC/ATL x64", "Windows 11 SDK 10.0.28000.2270", "SDK debugging tools 10.0.26100.3323 or newer"],
+    "compiler": "Chromium pinned clang-cl through depot_tools",
+    "source_location": "workspace/runtime/toolchains and workspace/runtime/webrtc-build",
+    "downloads": "Microsoft and official Chromium/WebRTC sources only",
+    "bootstrap_verification": "Valid Authenticode and Microsoft Corporation publisher before execution",
+    "restart": "No automatic Windows restart",
+    "defender_or_company_policy_changes": false,
+    "estimated_bytes": null,
+    "size_note": "Multi-GB toolchain/source acquisition. Actual WebRTC checkout/build size not measured; Chromium's 100GB requirement is not asserted as measured WebRTC size."
+  },
+  "automatic_install_started": false,
+  "references": [
+    "https://webrtc.googlesource.com/src/+/main/docs/native-code/development/prerequisite-sw/",
+    "https://chromium.googlesource.com/chromium/src/+/main/docs/windows_build_instructions.md",
+    "https://visualstudio.microsoft.com/downloads/"
+  ]
+}

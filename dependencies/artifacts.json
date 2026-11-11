@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "required_for_default_unit_development": false,
+  "artifacts": [
+    {
+      "logical_original_path": "dist/GuardDesk-Management-0.4.105-internal-001.zip",
+      "purpose": "Original immutable105 binary release; not required for unit development",
+      "present_on_preparation_host": false,
+      "sha256": "d01b86d4316fe5e2b9b13d00f3789e8e53ba0685608ccfede2e106269d9d4072",
+      "acquisition": "Private historical build input; not distributed in this public repository"
+    },
+    {
+      "logical_original_path": "runtime/session76-src",
+      "purpose": "Historical source baseline used only by full release/deployment-scope gates",
+      "present_on_preparation_host": false,
+      "sha256": null,
+      "acquisition": "Private historical build input; not distributed in this public repository"
+    },
+    {
+      "logical_original_path": "runtime/remote-baseline-revalidation-001/receipt.json",
+      "purpose": "Explicit declaration for missing76 ZIP; original facts must remain unchanged",
+      "present_on_preparation_host": false,
+      "sha256": "b76cb61e9d125b25fc9e07d2836c3393ea6f2e395cff5c8b0e11d7a71bf8c51e",
+      "acquisition": "Private historical build input; not distributed in this public repository"
+    },
+    {
+      "logical_original_path": "runtime/webrtc-product-notices-003/receipt.json",
+      "purpose": "License generator proof; shipped license texts included separately",
+      "present_on_preparation_host": false,
+      "sha256": "0702c7a7ac21b817406d1a8c13a2f8a3538feb46d02e5fd922838de6c28fed3a",
+      "acquisition": "Private historical build input; not distributed in this public repository"
+    },
+    {
+      "logical_original_path": "runtime/center-source-permissions-094-005/build-receipt.json",
+      "purpose": "Pinned historical packaging helper provenance",
+      "present_on_preparation_host": false,
+      "sha256": "4d9c2081d07b1c07883de5853fe5374bf22c1d79842791527b64cbdf74f4aded",
+      "acquisition": "Private historical build input; not distributed in this public repository"
+    }
+  ],
+  "original76_binary_zip_available": false,
+  "note": "Public sources can be developed and unit-tested without private artifacts. Full legacy release gates require separately authorized historical inputs; no success evidence is synthesized."
+}

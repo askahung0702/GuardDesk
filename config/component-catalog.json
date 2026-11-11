@@ -1,0 +1,3142 @@
+{
+  "format": 1,
+  "note": "Public sanitized source classification; historical identifiers are synthetic and historical tools are not default entrypoints.",
+  "files": [
+    {
+      "path": "source/BASELINE-MANIFEST.json",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/THIRD_PARTY_NOTICES.md",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/app.py",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/app_remote_endpoint.py",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/app_remote_installer.py",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/browser-extension/background.js",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/manifest.json",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/popup.css",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/popup.html",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/popup.js",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/upload_metadata.js",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/browser-extension/upload_selection.js",
+      "category": "browser_extension"
+    },
+    {
+      "path": "source/guarddesk/__init__.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/__main__.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/agent.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/application_control.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/application_exclusions.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/audit_archive.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/audit_reports.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/audit_search.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/audit_search_index.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/audit_sort.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/browser_auto_publication.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_deployment.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_dispatch.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_history.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_host.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_identity.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_publication.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_release.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/browser_trust.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/bundle_manifest.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/bundled_release.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/category_library.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/category_rules.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/connection_contract.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/context_permissions.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/custom_client.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/custom_library.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/custom_network.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/custom_settings.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/custom_software.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/custom_windows.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/decommission.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/deployment.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/desktop_agent.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/document_audit.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/document_context.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_io.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_process.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_queue.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_sacl.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_scope.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_settings.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/document_worker.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_files.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_package.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_payload.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_purge.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_setup.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_source.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/endpoint_transport.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/event_storage.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/file_access.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/file_audit_check.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/file_exclusions.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/file_handoff.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/fleet.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/hidden_files.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/identity.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/installer_channel.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/machine_agent.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/machine_agent_session.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/machine_agent_windows.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/machine_service.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/mail_reports.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/management.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/mis_native_loader.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/mis_native_media.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/mis_onefile.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/mis_support.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/mis_window.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/native_browser_identity.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/native_connector.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/native_connector_pipe.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/native_handoff_runtime.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/native_installer.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/native_usb.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/pagination.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/performance.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/policy.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/policy_defaults.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/policy_operations.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/policy_preview.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/policy_progress.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/process_audit.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/protected_files.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/release_scope.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/remote.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_admin_windows.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_client.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_codec.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_components.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_endpoint_entry.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_endpoint_state.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_errors.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_file_paths.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_installer_entry.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_lifetime.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_native.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_native_broker.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_preview_config.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_quality.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_readiness.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_relay.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_removal.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_service.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_service_worker.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_test_install.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_tray.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_trial.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_trial_install.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_viewer.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/remote_windows.py",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/removal.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/removal_full.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/serialization.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/server.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/server_backup.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/server_config.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/server_setup.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/single_instance.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/snapshot.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/software.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/software_client.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/software_contract.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/software_msi.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/source_permissions.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/app.js",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/audit_reports_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/audit_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/category_library_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/custom_library_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/custom_settings_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/improvements_ui.js",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/index.html",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/mail_reports_ui.js",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/management.js",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/remote_ui.js",
+      "category": "remote"
+    },
+    {
+      "path": "source/guarddesk/static/software_ui.js",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/static/style.css",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/static/updates_ui.js",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/storage_maintenance.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/store.py",
+      "category": "management_and_shared"
+    },
+    {
+      "path": "source/guarddesk/transaction_status.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/transport_errors.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/update_cache.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_client.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_native.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_notify.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_packages.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_preflight.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_progress.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_storage.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/update_windows.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/updater_maintenance.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/updater_refresh.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/updates.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/upload_proxy.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/usb_install.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/vault.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/web_upload.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/website_control.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/windows/application-info.ps1",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/windows/applications.ps1",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/windows/controls.ps1",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/windows/install-usb.ps1",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/windows/package-info.ps1",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/guarddesk/windows_controls.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/windows_events.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/windows_privilege.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/windows_sessions.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/windows_watch.py",
+      "category": "endpoint_install_update"
+    },
+    {
+      "path": "source/guarddesk/worker_startup.py",
+      "category": "shared_product"
+    },
+    {
+      "path": "source/mis_remote_app.py",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/native/document_trace.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/file_handoff.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/file_handoff.h",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/remote/CMakeLists.txt",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/acceptance-plan.json",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/async_capture.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/async_capture.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/benchmark.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/benchmark.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/broker_api.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/broker_api.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/broker_api_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/broker_context.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/broker_pump_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/capture.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/capture.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/codec.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/codec.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/cohort.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/cohort.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/cursor.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/cursor.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/desktop_worker.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/desktop_worker.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/display_geometry.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/display_geometry_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/frame_binding.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/frame_binding.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/frame_pool.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/frame_pool.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/gpu_scale.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/gpu_scale.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/gpu_scale_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/h264_frame_binding.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/h264_frame_binding.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/input.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/input.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_channel.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_channel.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_channel_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_peer.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_peer.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_peer_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_wire.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_wire.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/ipc_wire_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/kernel_trust.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/kernel_trust.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/kernel_trust_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/latency.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/latest_task.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/launch_capsule.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/launch_capsule.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/media_runtime_defaults.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/media_runtime_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/media_wire.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/media_wire.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/media_wire_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/native_entry.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/pointer_flow.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/pointer_flow_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/relay_policy.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/relay_policy.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/render.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/render.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/render_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/session.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/session.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/session_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/toolchain-plan.json",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/video_geometry.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/viewer.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/viewer.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/viewer_probe.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/BUILD.gn",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/frame_bridge.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/frame_bridge.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_entry.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_entry_token.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_peer.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_peer.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_peer_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/media_token_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mf_codec_adapter.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mf_codec_adapter.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mf_codec_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mf_hardware_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mis_native.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/mis_native.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/network_guard.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/network_guard.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/owned_control_probe.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/owned_handoff_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/owned_video_probe.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/relay_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/webrtc/transport_probe.cc",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/windows_desktop.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/windows_desktop.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/worker.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/remote/worker_status.hpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/service/CMakeLists.txt",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/service/service_host.cpp",
+      "category": "native_service_and_remote"
+    },
+    {
+      "path": "source/native/tests/file_handoff_fixture.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_budget.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_budget.h",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_drop_hook.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_drop_hook.h",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_drop_hook_IA2_LICENSE.txt",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_browser_ole_source.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_file_picker.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/native/tests/owned_ole_drop.cpp",
+      "category": "native_document_and_owned_fixtures"
+    },
+    {
+      "path": "source/requirements-build.txt",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/requirements.txt",
+      "category": "entrypoint_and_dependency_definition"
+    },
+    {
+      "path": "source/tests/Lab01DiagnosticTests.cs",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/Lab01IncidentEvidenceTests.cs",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/Lab01MaintenanceWindowsProbe.cs",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/Lab01TrialMaintenanceTests.cs",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/application_exclusions_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/application_exclusions_legacy_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/dev_cache_maintenance_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/audit_date_defaults_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/audit_reports_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/audit_reports_performance.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/audit_search_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/audit_sort_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/category_library_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/category_wildcard_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/custom_library_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/custom_settings_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/default_audit_exclusions_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/detailed_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/development_exclusions_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/development_exclusions_native_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/device_detail_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/document_audit_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/endpoint_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/extension_native_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/hidden_settings_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/history_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/improvements_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/installed_update_check_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/machine_agent_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/mail_reports_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/management_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/management_launcher_repair_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/management_performance_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/native_remote_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/native_update_switch_race_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/navigation_performance_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/lab01_acl_audit_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/lab01_acl_repair_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/lab01_archive_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/lab01_updates_acl_repair_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/owned_mis_native_frozen_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/packaged_audit_reports_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/packaged_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/packaged_web_upload_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/policy_editor_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/remote_all_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/remote_launcher_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/server_source_legacy_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_application_exclusions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_audit_archive.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_audit_queries.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_audit_reports.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_audit_search.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_audit_sort.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_auto_publication.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_deployment_lifecycle.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_dispatch.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_drop_contract.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_history.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_publication.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_browser_trust.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_build_dependencies.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_bundle_replace.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_bundled_release.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_capacity_analysis.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_category_api.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_category_library.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_category_native_worker.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_category_wildcards.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_cli_role_imports.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_context_permissions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_custom_library.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_custom_settings.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_daily_event_storage.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_deployment_scope_gate.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_detailed_controls.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_development_exclusions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_development_host_policy.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_device_report_drilldown.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_document_audit.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_document_interaction.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_document_native.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_document_performance.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_easy_server_setup.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_controls.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_entry_cmd.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_payload.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_purge.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_reinstall_root.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_retire.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_setup.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_endpoint_source.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_explicit_service_upgrade.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_explicit_trial_upgrade.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_file_access.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_file_collection_scope.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_file_handoff.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_file_handoff_center.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_fleet_network_search.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_general_file_audit.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_hidden_files.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_improvements_integration.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_initial_policy_lifecycle.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_install_failure_evidence.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_installer_entry.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_installer_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_internal_health_exclusions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_interrupted_trial_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_agent.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_agent_windows.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_handoff_journals.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_migration_resume.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_process_diagnostics.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_remote_global.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_machine_service.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mail_reports.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_management.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_agent_launcher.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_executable_api.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_heartbeat_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_native_media.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_onefile.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_support.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_mis_window.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_browser_identity.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_capacity_repair.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_connector.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_connector_pipe.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_handoff_runtime.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_installer.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_remote.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_native_usb.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_lab01_087_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_password_policy.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_performance.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_policy_defaults.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_policy_operations.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_process_audit.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_release_scope.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_admin.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_all_grants.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_autonomous.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_baseline.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_broker_concurrency.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_build_receipts.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_clarity.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_cohort_rollout.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_components.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_consent_once.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_endpoint_artifact.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_endpoint_entry.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_endpoint_state.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_launcher.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_m2_lifecycle.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_native_broker.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_native_signaling.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_next_uac_probe.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_preview_config.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_quality.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_relay.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_removal_full.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_service.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_service_adapter.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_session_lifecycle.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_test_install.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_transport_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_trial.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_remote_trial_install.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_removal_and_backup.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_search_ingest.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_search_recovery.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_server_deployment.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_shared_deployment.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_software_deployment.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_source_permissions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_startup_file_exclusions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_storage_optimization.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_system.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_task_xml_encoding.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_transaction_status.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_trial_runtime_permissions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_update_notify.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_update_progress.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_update_storage.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_update_storage_scan.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_update_windows.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_updater_refresh.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_updates.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_user_path_exclusions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_web_upload.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_website_control.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_website_control_windows.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_windows_sessions.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/test_worker_startup.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/update_failure_metadata_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/update_failure_package_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/update_progress_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/updates_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/upload_memory_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/usb_ui_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tests/web_upload_browser_smoke.py",
+      "category": "automated_test_source"
+    },
+    {
+      "path": "source/tools/Diagnose-EndpointUpdate.ps1",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/GuardDesk.spec",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/GuardDeskMIS.spec",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/GuardDeskRemoteEndpoint.spec",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/Lab01IncidentEvidence.cs",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/Lab01TrialMaintenance.cs",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/analyze_audit_capacity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/analyze_lab01_acl_reports.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/assemble_remote_preview.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/assess_upload_readiness_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/audit_search_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/audit_sort_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/automatic_index_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_audit_storage.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_custom_library.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_custom_settings.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_daily_storage.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_endpoint.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_mail_reports.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_native_host.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_remote_clarity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_remote_codec.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/benchmark_storage_0432.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/build_center_source_prepare.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_dependencies.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_document_trace.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_existing_update_check.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_file_handoff.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_integrated_center.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_management_start_repair.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_mis_remote.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_lab01_acl_audit.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/build_lab01_acl_repair.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/build_lab01_archive.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/build_lab01_updates_acl_repair.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/build_owned_browser_drop_hook.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_remote_endpoint_preview.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_remote_native.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_remote_product_preview.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_remote_service.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_remote_webrtc.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0465.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0466.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0466_v2.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0467.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0467_v2.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0468.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0469.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0469_v2.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/build_trial_0469_v3.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/category_policy_benchmark.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/center_source_prepare.cs",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_deployment_scope.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_native_browser_identity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_publication_0449.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_remote_next_uac_probe.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_remote_webrtc_syntax.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/check_update_capacity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/collect_update_failure.ps1",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/development_host_policy.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/diagnose-native-install.ps1",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/diagnose_dev_update_20261029.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/diagnose_dispatch_local_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/diagnose_installed_broker_metadata_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/diagnose_packaged_viewer_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/diagnose_sacl_fixture.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_audit_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_context_frozen_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_context_frozen_smoke_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_context_frozen_smoke_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_copy_native_poc.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_hotpath_performance_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_native_os_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/document_native_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_agent_reset.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_fresh_cleanup.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_hive_selftest.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_registry_hive.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_remove.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_remove_direct.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/endpoint_responsiveness_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/evaluate_audit_noise.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/file_handoff_os_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_os_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_os_smoke_0452.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_os_smoke_0453.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_os_smoke_0454.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_os_smoke_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_performance_0452.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_performance_0453.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_performance_0454.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/general_file_audit_performance_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/inspect_ipguard_setup_20261022.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/licenses/Tcl-8.6.15.license.terms",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/maintain_dev_cache_20261029.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/measure_browser_history.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/measure_hidden_filter_0457.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/native_installer_os_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/native_poll_buffer_contract_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/native_worker_health_os_smoke.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/lab01_acl_recovery_batch.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/lab01_clean_start.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/lab01_startup_check.cmd",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/lab01_support_batch.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/owned_onefile_window.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/package_management_094_002.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/package_release.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/package_update_failure_diagnostic.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/prepare_remote_home_trial.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/prepare_remote_lab01_source.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/prepare_remote_trial_source.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/probe_dev_0468_failure.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_category_frozen_0460.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_category_frozen_0462.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_center_acl_rule_removal.cs",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_endpoint_reinstall.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_fleet_network_0468.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_frozen_handoff_0465.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_frozen_handoff_0466.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_frozen_remote_0467.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_installed_dev_budget_20261029.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/probe_installed_context_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/probe_management_source_setup.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_mis_frozen.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_mis_frozen_0463.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_native_connector.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_owned_browser_drop_hook.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_owned_viewer_0466.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_release_scope_0469.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_display_diagnostics.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_endpoint_artifact.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_frozen_center.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_install_resume.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_lifecycle.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_removal.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_resident.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_runtime_startup.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_service_boundary.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_remote_trial_frozen.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_server_upgrade_0460.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_server_upgrade_0462.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_software_deployment.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_update_boundary_0469.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_update_capacity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/probe_viewer_startup_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/rea_ipguard_idle_session_20261023.mjs",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/rea_ipguard_native_session_20261022.mjs",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/recover_lab01_087_trial.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/recover_lab01_interrupted_install.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/remote_baseline.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_broker_probe.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_checkpoint_receipts.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_endpoint_artifact.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_next_checkpoint.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_next_uac_probe.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_notices.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_webrtc_four_sessions.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/remote_webrtc_inventory.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/repair_context_permissions_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/reproduce_native_budget_failure.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/reproduce_lab01_observed_budget.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/reproduce_upload_formats_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/reproduce_wts_context_20261027.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/resume_regression_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/review_category_implementation.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/review_ipguard_native_20261022.py",
+      "category": "historical_field_or_research"
+    },
+    {
+      "path": "source/tools/review_native_handoff_runtime.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/review_owned_browser_drop_hook.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/review_release_0426.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0427.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0428.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0429.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0430.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0431.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0432.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0433.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0434.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0435.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0436.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0437.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0438.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0439.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0440.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0441.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0442.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0443.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0444.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0445.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0446.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0447.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0448.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0449.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0450.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0451.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0452.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0453.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0454.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0455.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0456.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0457.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0458.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0459.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0460.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0461.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0462.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0463.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0464.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0465.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0466.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0467.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0468.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_release_0469.py",
+      "category": "build_release"
+    },
+    {
+      "path": "source/tools/review_remote_frozen_downloads.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/review_remote_next_checkpoint.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_category_regression.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_deployment_regression_0460.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_deployment_regression_0462.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_fleet_network_regression.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_machine_agent_regression.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_mis_regression.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_mis_regression_0463.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0449.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0450.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0451.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0452.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0453.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0454.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0457.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_regression_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_remote_source_checks.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_scoped_regression_0457.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_scoped_regression_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/run_update_release_regression.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/scan_management_source_package.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0449.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0450.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0451.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0452.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0453.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0454.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0457.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0460.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0461.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0462.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0463.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0464.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0465.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0466.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0467.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0468.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/seal_release_0469.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/search_recovery_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/sort_ingestion_comparison.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/sort_ingestion_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/trace_remote_legacy_fixture.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/uac_prompt_identity.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/update_progress_performance.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify-live-process-audit.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_browser_bundle_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_browser_dispatch_frozen_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_browser_dispatch_frozen_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_browser_trust_windows_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_dispatch_ui_0458.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_dispatch_ui_0459.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_document_0449.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_document_audit_0448.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0451.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0452.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0453.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0454.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0455.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_documents_0456.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_hidden_frozen_0457.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_server_deployment.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/verify_updates_0450.py",
+      "category": "validation_and_regression"
+    },
+    {
+      "path": "source/tools/write_release_attempts_0469.py",
+      "category": "validation_and_regression"
+    }
+  ]
+}

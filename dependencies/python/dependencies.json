@@ -1,0 +1,128 @@
+{
+  "format": 1,
+  "created_at": "2026-11-02T03:25:23.602429+00:00",
+  "packages": [
+    {
+      "name": "altgraph",
+      "version": "0.17.4",
+      "filename": "altgraph-0.17.4-py2.py3-none-any.whl",
+      "sha256": "642743b4750de17e655e6711601b077bc6598dbfa3ba5fa2b2a35ce12b508dff",
+      "index_url": "https://pypi.org/pypi/altgraph/0.17.4/json",
+      "download_url": "https://files.pythonhosted.org/packages/4d/3f/3bc3f1d83f6e4a7fcb834d3720544ca597590425be5ba9db032b2bf322a2/altgraph-0.17.4-py2.py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "cffi",
+      "version": "2.0.0",
+      "filename": "cffi-2.0.0-cp313-cp313-win_amd64.whl",
+      "sha256": "19f705ada2530c1167abacb171925dd886168931e0a7b78f5bffcae5c6b5be75",
+      "index_url": "https://pypi.org/pypi/cffi/2.0.0/json",
+      "download_url": "https://files.pythonhosted.org/packages/37/18/6519e1ee6f5a1e579e04b9ddb6f1676c17368a7aba48299c3759bbc3c8b3/cffi-2.0.0-cp313-cp313-win_amd64.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.2",
+      "filename": "cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "sha256": "7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c",
+      "index_url": "https://pypi.org/pypi/cryptography/50.0.2/json",
+      "download_url": "https://files.pythonhosted.org/packages/9a/4f/adfc442765721292fff86d314ce385d3249d22db42295c0dd057727b60f3/cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "packaging",
+      "version": "23.2",
+      "filename": "packaging-23.2-py3-none-any.whl",
+      "sha256": "8c491190033a9af7e1d931d0b5dacc2ef47509b34dd0de67ed209b5203fc88c7",
+      "index_url": "https://pypi.org/pypi/packaging/23.2/json",
+      "download_url": "https://files.pythonhosted.org/packages/ec/1a/610693ac4ee14fcdf2d9bf3c493370e4f2ef7ae2e19217d7a237ff42367d/packaging-23.2-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pefile",
+      "version": "2023.2.7",
+      "filename": "pefile-2023.2.7-py3-none-any.whl",
+      "sha256": "da185cd2af68c08a6cd4481f7325ed600a88f6a813bad9dea07ab3ef73d8d8d6",
+      "index_url": "https://pypi.org/pypi/pefile/2023.2.7/json",
+      "download_url": "https://files.pythonhosted.org/packages/55/26/d0ad8b448476d0a1e8d3ea5622dc77b916db84c6aa3cb1e1c0965af948fc/pefile-2023.2.7-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pillow",
+      "version": "13.0.0",
+      "filename": "pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "sha256": "9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42",
+      "index_url": "https://pypi.org/pypi/pillow/13.0.0/json",
+      "download_url": "https://files.pythonhosted.org/packages/d7/ed/1b16fb66a37e1b9e41370b93b2c614c7da761a5b2a41dc333f7af4639962/pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pip",
+      "version": "26.2",
+      "filename": "pip-26.2-py3-none-any.whl",
+      "sha256": "931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad",
+      "index_url": "https://pypi.org/pypi/pip/26.2/json",
+      "download_url": "https://files.pythonhosted.org/packages/62/36/a3aed958d60531cb442b7ab4596cda7b3621cfb916f8ae1d6769795c7dc1/pip-26.2-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pycparser",
+      "version": "2.22",
+      "filename": "pycparser-2.22-py3-none-any.whl",
+      "sha256": "c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc",
+      "index_url": "https://pypi.org/pypi/pycparser/2.22/json",
+      "download_url": "https://files.pythonhosted.org/packages/13/a3/a812df4e2dd5696d1f351d58b8fe16a405b234ad2886a0dab9183fb78109/pycparser-2.22-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pyinstaller",
+      "version": "6.21.0",
+      "filename": "pyinstaller-6.21.0-py3-none-win_amd64.whl",
+      "sha256": "7fae06c494ce0ebfe6bd3055c0e409def884f63af2e3705d06bd431ad9237fc7",
+      "index_url": "https://pypi.org/pypi/pyinstaller/6.21.0/json",
+      "download_url": "https://files.pythonhosted.org/packages/c1/fa/ca1d7e5257dd8566a9dfc0dfb02f8a8075eeb53d4b2d3c579f1276759042/pyinstaller-6.21.0-py3-none-win_amd64.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pyinstaller-hooks-contrib",
+      "version": "2026.6",
+      "filename": "pyinstaller_hooks_contrib-2026.6-py3-none-any.whl",
+      "sha256": "fd13b8ac126b35361175edacd41a0d97080b75dd5f4b594ecefefff969509dd3",
+      "index_url": "https://pypi.org/pypi/pyinstaller-hooks-contrib/2026.6/json",
+      "download_url": "https://files.pythonhosted.org/packages/e7/31/f2d7343d8ed5f7c4678377886f6ce533e6eaaa131b252ce950114c2a7efa/pyinstaller_hooks_contrib-2026.6-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "pywin32-ctypes",
+      "version": "0.2.3",
+      "filename": "pywin32_ctypes-0.2.3-py3-none-any.whl",
+      "sha256": "8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8",
+      "index_url": "https://pypi.org/pypi/pywin32-ctypes/0.2.3/json",
+      "download_url": "https://files.pythonhosted.org/packages/de/3d/8161f7711c017e01ac9f008dfddd9410dff3674334c233bde66e7ba65bbf/pywin32_ctypes-0.2.3-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    },
+    {
+      "name": "setuptools",
+      "version": "84.1.0",
+      "filename": "setuptools-84.1.0-py3-none-any.whl",
+      "sha256": "5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9",
+      "index_url": "https://pypi.org/pypi/setuptools/84.1.0/json",
+      "download_url": "https://files.pythonhosted.org/packages/18/02/b4bbb90f8f29e334898ff45c6d9b1fffaa6f378017052b3023a06262b5f7/setuptools-84.1.0-py3-none-any.whl",
+      "upstream_digest_matches": true,
+      "pypi_advisories": []
+    }
+  ],
+  "upstream": "PyPI HTTPS release metadata and files; not a malware verdict",
+  "company_files_uploaded": false
+}

@@ -1,0 +1,2 @@
+# Preserve exact source/receipt bytes; CMD launchers already use CRLF.
+* -text

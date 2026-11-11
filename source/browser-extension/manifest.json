@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "GuardDesk 公司端點稽核",
+  "version": "0.5.0",
+  "description": "記錄公司電腦的網站網址、時間及瀏覽器提供的上傳檔案路徑與 HTTP 結果，套用管理員指定的網站上傳限速。紀錄離線保留，恢復後補送。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsgL1xxcnyhLMWjyhq5zLc9Dv0MmQwP5+gL1LGvrSLvCeSRoHjHKmuUAezq2k+KAosMNl05p30um8yyADuDfyfqAi4BYB8nCzycdqj93p/GylyEO9/I40LlxJWovM+UlkYrvwPEV5kodOLaofavXe/spU+IhFpjqEiKFge5LJQEysLLbQ6iz9Ap9u6C8V5a4J4rM6Slfcy/HCJuVi4E08ECBuchg7LgYY8a/MwXIweaWGRw2bV4Yd6A//305Y1Gzjy8qLJo9Z3+sPjHfItEefj3SxkzMq1c1K4JPgUDKIQE26XMi56ZkFy8AySaOQqkvvEXUy8sVzkKHMI2I1N5CeqQIDAQAB",
+  "permissions": ["nativeMessaging", "webNavigation", "webRequest", "storage", "unlimitedStorage", "alarms", "proxy"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [{"matches": ["http://*/*", "https://*/*"], "js": ["upload_selection.js"], "all_frames": true, "run_at": "document_start"}, {"matches": ["http://*/*", "https://*/*"], "js": ["upload_metadata.js"], "world": "MAIN", "all_frames": true, "run_at": "document_start"}],
+  "action": {"default_title": "GuardDesk 網址稽核狀態", "default_popup": "popup.html"}
+}
