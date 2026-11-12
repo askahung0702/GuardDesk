@@ -54,6 +54,13 @@ public:
 };
 
 struct QueuedCommand {ipc::Message message;std::uint64_t arrived;};
+enum class QueuedDisposition {apply,discard_presented,cleanup_input};
+inline QueuedDisposition queued_disposition(ipc::Kind kind,std::uint64_t arrived,std::uint64_t now){
+    if(now>=arrived && now-arrived<=100)return QueuedDisposition::apply;
+    if(kind==ipc::Kind::presented)return QueuedDisposition::discard_presented;
+    if(kind==ipc::Kind::input)return QueuedDisposition::cleanup_input;
+    return QueuedDisposition::apply;
+}
 // Used under the worker's existing mutex. Only consecutive pure absolute
 // positions for the SAME session/transport/desktop/frame can replace a tail.
 // Key/button/wheel, ACK, release, lease and consumed packets are barriers.

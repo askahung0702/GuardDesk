@@ -263,6 +263,36 @@ void launch_test(){
     require(WaitForSingleObject(peer.wait_handle(),0)==WAIT_TIMEOUT,"launch_retained_query_peer");
 }
 }
+void queued_ack_drag_test(){
+    unsigned injected=0;
+    SessionRuntime runtime(sid(),1,100,5000,[&](const auto& batch){injected+=static_cast<unsigned>(batch.size());return static_cast<UINT>(batch.size());},[]{});
+    require(runtime.command(lease(1),101,desktop()) && runtime.observe(desktop(),102) && runtime.publish_frame(1,103),"queued_ack_setup");
+    require(runtime.command(command(ipc::Kind::presented,2,1,1),104,desktop()),"queued_ack_initial");
+    auto down=command(ipc::Kind::input,3,1,1);down.payload[0]=2;down.payload[1]=1;down.payload[2]=1;down.payload[4]=20;down.payload[8]=20;
+    require(runtime.command(down,105,desktop()) && runtime.held() && injected==2,"queued_ack_mouse_down");
+    WorkerCommandQueue queue;
+    auto old_ack=command(ipc::Kind::presented,4,1,1);
+    require(queue.push(old_ack,106),"queued_ack_admit");auto pending=queue.pop();require(pending.has_value(),"queued_ack_missing");
+    // Exercise the runtime decision, including the deliberately failing old
+    // implementation, without MSVC folding the expected failure to C4702.
+    QueuedDisposition (*volatile decide)(ipc::Kind,std::uint64_t,std::uint64_t)=queued_disposition;
+    const auto action=decide(pending->message.header.kind,pending->arrived,220);
+    if(action==QueuedDisposition::cleanup_input){pending->message.header.kind=ipc::Kind::release_all;pending->message.header.payload_bytes=0;
+        pending->message.header.desktop_generation=pending->message.header.frame_sequence=0;pending->message.payload.clear();require(runtime.command(pending->message,220,desktop()),"queued_ack_old_cleanup");}
+    else if(action==QueuedDisposition::apply)require(runtime.command(pending->message,220,desktop()),"queued_ack_apply");
+    require(runtime.held() && injected==2,"stale_presented_released_drag");
+    require(action==QueuedDisposition::discard_presented && !queue.push(old_ack,221),"discarded_ack_replayed");
+    auto move=command(ipc::Kind::input,5,1,1);move.payload[0]=3;move.payload[4]=40;move.payload[8]=40;
+    require(runtime.command(move,222,desktop()) && runtime.held(),"drag_after_dropped_ack");
+    auto up=down;up.header.sequence=6;up.payload[1]=0;
+    require(runtime.command(up,223,desktop()) && !runtime.held(),"drag_up_after_dropped_ack");
+    down.header.sequence=7;require(runtime.command(down,224,desktop()) && runtime.held(),"stale_input_setup");
+    require(queued_disposition(ipc::Kind::input,225,326)==QueuedDisposition::cleanup_input,"stale_input_was_replayed");
+    require(runtime.command(command(ipc::Kind::release_all,8),326,desktop()) && !runtime.held(),"stale_input_cleanup_missing");
+    require(!runtime.command(key(9,1,1,true),1104,desktop()),"discarded_ack_extended_freshness");
+    require(!runtime.observe(desktop(),5000) && runtime.ended(),"dropped_ack_extended_authority");
+    std::cout<<"stale_presented_preserves_drag_without_extending_frame_or_lease=true\n";
+}
 void display_topology_test(){
     unsigned clears=0;std::vector<INPUT> inputs;
     SessionRuntime runtime(sid(),1,100,10000,[&](const auto& b){inputs.insert(inputs.end(),b.begin(),b.end());return static_cast<UINT>(b.size());},[&]{++clears;});
@@ -277,6 +307,6 @@ void display_topology_test(){
 int main(){
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
     try{sei_test();}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
-    try{display_topology_test();targeted_cleanup_test();session_test();focus_release_preserves_capture_test();rejected_input_keeps_verified_desktop_test();input_test();frame_test();delayed_media_start_test();concurrent_frame_test();binding_test();launch_test();std::cout<<"{\"passed\":true,\"production_session_core\":true,\"anonymous_readonly_frames\":true,\"bounded_RTP_epoch_binding\":true,\"minimal_launch_query_handles\":true,\"desktop_capture\":false,\"OS_input\":false,\"SYSTEM_boundary\":false}\n";return 0;}
+    try{queued_ack_drag_test();display_topology_test();targeted_cleanup_test();session_test();focus_release_preserves_capture_test();rejected_input_keeps_verified_desktop_test();input_test();frame_test();delayed_media_start_test();concurrent_frame_test();binding_test();launch_test();std::cout<<"{\"passed\":true,\"production_session_core\":true,\"anonymous_readonly_frames\":true,\"bounded_RTP_epoch_binding\":true,\"minimal_launch_query_handles\":true,\"desktop_capture\":false,\"OS_input\":false,\"SYSTEM_boundary\":false}\n";return 0;}
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

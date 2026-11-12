@@ -79,11 +79,14 @@ int run(int argc,wchar_t** argv){
                 {std::lock_guard<std::mutex> lock(mutex);queued=commands.pop();combined=commands.coalesced;high_water=commands.high_water;}
                 if(!queued)break;auto& pending=*queued;
                 const auto age=GetTickCount64()-pending.arrived;
-                worker.queue_observation(combined,high_water,age,pending.message.header.kind==ipc::Kind::input && age>100);
-                // A delayed click/ACK must not replay after a capture stall.
-                // Release tracked keys instead; absolute leases and terminal
-                // cleanup retain their own deadlines and remain processable.
-                if(age>100 && (pending.message.header.kind==ipc::Kind::input || pending.message.header.kind==ipc::Kind::presented)){
+                const auto disposition=queued_disposition(pending.message.header.kind,pending.arrived,GetTickCount64());
+                const unsigned down_type=pending.message.payload.size()==24 && pending.message.payload[1]==1?unsigned(pending.message.payload[0]):0u;
+                worker.queue_observation(combined,high_water,age,disposition==QueuedDisposition::cleanup_input,down_type,disposition==QueuedDisposition::discard_presented);
+                // Queue admission already consumed the sequence. A delayed
+                // presentation cannot refresh an ACK or release a valid drag.
+                // Expired input still cleans only the current tracked ledger.
+                if(disposition==QueuedDisposition::discard_presented)continue;
+                if(disposition==QueuedDisposition::cleanup_input){
                     pending.message.header.kind=ipc::Kind::release_all;pending.message.header.payload_bytes=0;
                     pending.message.header.desktop_generation=pending.message.header.frame_sequence=0;pending.message.payload.clear();
                 }

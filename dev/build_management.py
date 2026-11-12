@@ -1,7 +1,7 @@
 """Complete internal management package. Fail closed; never install or deploy."""
 from pathlib import Path
 import argparse,contextlib,json,msvcrt,os,re,shutil,subprocess,sys,time,uuid
-from worktree import contained,digest,environment,files,python,stage
+from worktree import contained,digest,environment,files,python,stage,webrtc_source
 from management_package import package,publish,scan,verify_zip,write
 from native_inputs import prepare
 from restore_release_inputs import restore
@@ -50,9 +50,10 @@ def prerequisites(root,args):
     artifact=Path(args.artifact_root or root)/baseline['artifact']['path']
     if digest(artifact)!=baseline['artifact']['sha256']:raise ValueError('Accepted baseline package differs')
     if args.reuse_native_from:
+        if getattr(args,'webrtc_source',None) is not None:raise ValueError('Choose native cache or WebRTC source rebuild, not both')
         prepare(root,root/'source',args.reuse_native_from,json.loads((root/'dependencies/native-cache.lock.json').read_text()),False)
     else:
-        if not (root/'runtime/w/src/.git').exists():raise ValueError('Pinned WebRTC checkout missing; prepare development tools first')
+        webrtc_source(root,getattr(args,'webrtc_source',None))
         for name in ('2019','2026'):
             if not Path(f'C:/Program Files (x86)/Microsoft Visual Studio/{name}/BuildTools').exists():raise ValueError('Approved VS'+name+' Build Tools required')
     defender=Path(os.environ.get('ProgramData','C:/ProgramData'))/'Microsoft/Windows Defender/Platform/CurrentVersion/MpCmdRun.exe'
@@ -86,6 +87,8 @@ def execute(root,args):
     # Ambient receipt/cohort variables must never silently select another build.
     for key in list(env):
         if key.startswith(('GUARDDESK_NATIVE_','GUARDDESK_MEDIA_','GUARDDESK_SOURCE_','GUARDDESK_TEST_COHORT','GUARDDESK_REMOTE_')):env.pop(key)
+    env.pop('GUARDDESK_WEBRTC_SOURCE',None)
+    if not args.reuse_native_from:env['GUARDDESK_WEBRTC_SOURCE']=str(webrtc_source(root,getattr(args,'webrtc_source',None)))
     # Keep the actual ZIP/ACL fixture below legacy Win32 MAX_PATH even in a deep checkout.
     run=contained(root,root/('runtime/management-build-'+uuid.uuid4().hex[:8]))
     run.mkdir();before=files(root/'source');baseline_before=digest(root/'CURRENT-BASELINE.json')
@@ -110,7 +113,7 @@ def execute(root,args):
             service=Path(selection.pop('service'));env.update(selection);report['native_inputs']=proof
         else:
             # Tools are explicit prerequisites; never download or install them here.
-            if not (root/'runtime/w/src/.git').exists():raise ValueError('Pinned WebRTC checkout missing; see dev/fetch_webrtc.py')
+            report['webrtc_source']=env['GUARDDESK_WEBRTC_SOURCE']
             native=pipeline.new('native','remote-m2-native-build-*.json',[exe,'-m','tools.build_remote_native','--owned-tests'])
             media=pipeline.new('webrtc','webrtc-owned-build-*.json',[exe,'-m','tools.build_remote_webrtc','--run-owned-ui-tests'],7200)
             service_receipt=pipeline.new('service','remote-service-build-*/receipt.json',[exe,'-m','tools.build_remote_service'])
@@ -125,7 +128,7 @@ def execute(root,args):
         unit_before=set((root/'runtime/test-results').glob('unit-*.json'))
         pipeline.command('source-regression',[exe,root/'dev/run_unit.py'])
         unit=one_new(root/'runtime/test-results','unit-*.json',unit_before);unit_body=passing(unit)
-        if unit_body['skipped'] or unit_body['tests']<171:raise ValueError('Full source inventory requires zero skips')
+        if unit_body['skipped'] or unit_body['tests']<195:raise ValueError('Full cumulative source inventory requires at least 195 cases and zero skips')
         report['source_regression']={'receipt':str(unit),'sha256':digest(unit),'tests':unit_body['tests']}
         receipt=pipeline.new('integrated','remote-center-build-*/receipt.json',[exe,'-X','utf8','-m','tools.build_integrated_center',
             '--version',args.version,'--cohort',cohort,'--service',service,
@@ -167,6 +170,7 @@ def main():
     parser.add_argument('--revision',default='001')
     parser.add_argument('--artifact-root',type=Path,help='Approved historical artifacts root; copied by exact hash')
     parser.add_argument('--reuse-native-from',type=Path,help='Explicit approved 105 cache root; unchanged source only')
+    parser.add_argument('--webrtc-source',type=Path,help='Explicit existing pinned WebRTC source for a real rebuild')
     parser.add_argument('--check',action='store_true',help='Read-only prerequisite check, no build/staging/download')
     args=parser.parse_args()
     root=ROOT.resolve(strict=True)

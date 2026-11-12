@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 from tools.check_remote_webrtc_syntax import stage,VENDOR,WORKSPACE,REVISION,SOURCE
 
 ARGS='is_debug=false symbol_level=0 is_component_build=false rtc_include_tests=false rtc_build_examples=false rtc_use_h264=false target_cpu="x64"'
@@ -25,7 +26,7 @@ def main():
     number=1
     while (WORKSPACE/f'runtime/webrtc-owned-build-{number:03}.log').exists():number+=1
     log=WORKSPACE/f'runtime/webrtc-owned-build-{number:03}.log'
-    metadata={'revision':REVISION,'sources':hashes,'args':ARGS,'jobs':2,'stages':[],'visible_owned_ui_requested':visible_ui,'product_installed':False,'deployable':False}
+    metadata={'revision':REVISION,'vendor_root':str(VENDOR),'sources':hashes,'args':ARGS,'jobs':2,'stages':[],'visible_owned_ui_requested':visible_ui,'product_installed':False,'deployable':False}
     with log.open('x',encoding='utf-8') as output:
         for label,command in (
             ('gn',[str(VENDOR/'buildtools/win/gn.exe'),'gen','out/GuardDesk','--root-target=//guarddesk_remote:owned_probes','--args='+ARGS]),
@@ -38,6 +39,7 @@ def main():
             cases=[('remote_mf_codec_probe',[]),('remote_mf_codec_probe',['--expired-binding']),('remote_transport_probe',[]),('remote_control_probe',[]),('remote_video_probe',[]),('remote_video_probe',['--owned-1080p']),('remote_pipeline_probe',[]),('remote_media_peer_probe',[]),('remote_media_peer_probe',['--owned-input-stress']),('remote_media_peer_probe',['--owned-backlog-repro']),('remote_hardware_codec_probe',[]),('remote_media_token_probe',[]),('remote_relay_probe',[])]
             cases.append(('remote_media_peer_probe',['--owned-grant-stall']))
             cases.append(('remote_media_peer_probe',['--owned-preconnect-focus']))
+            cases.append(('remote_mf_codec_probe',['--dynamic-rates']))
             if visible_ui:
                 cases.append(('remote_media_peer_probe',['--owned-window-modal']))
                 cases.append(('remote_owned_handoff_probe',[]))
@@ -65,6 +67,15 @@ def main():
         if path.is_file():
             with path.open('rb') as stream:checksum=hashlib.file_digest(stream,'sha256').hexdigest()
             artifacts[name]={'sha256':checksum,'bytes':path.stat().st_size}
+    # Publish only this build's hashed outputs below the canonical runtime.
+    # An external source checkout never becomes an external artifact bypass.
+    artifact_folder=WORKSPACE/'runtime/webrtc-owned-artifacts'/log.stem
+    artifact_folder.mkdir(parents=True,exist_ok=False)
+    for name,item in artifacts.items():
+        destination=artifact_folder/name;shutil.copyfile(VENDOR/'out/GuardDesk'/name,destination)
+        with destination.open('rb') as stream:checksum=hashlib.file_digest(stream,'sha256').hexdigest()
+        if checksum!=item['sha256']:raise RuntimeError('WebRTC output copy hash mismatch')
+    metadata['artifact_root']=str(artifact_folder.relative_to(WORKSPACE))
     metadata['artifacts']=artifacts
     manifest=log.with_suffix('.json');manifest.write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({'log':str(log),'manifest':str(manifest),'passed':metadata['passed'],'deployable':False}),flush=True)

@@ -42,6 +42,7 @@ def receipt(pattern,media=False):
         require_input_backlog_regression(body)
         require_grant_stall_regression(body)
         require_preconnect_regression(body)
+        require_dynamic_rates_regression(body)
     for name,expected in body['sources'].items():
         source=SOURCE/name
         if media:
@@ -76,6 +77,18 @@ def require_preconnect_regression(body):
         if (body.get('runtime_tests_requested') is not True or len(cases)!=1
                 or cases[0].get('exit')!=0 or cases[0].get('timeout') or any(item.get('exit')!=0 for item in stages)):
             raise ValueError('Native preconnect regression and real modal-window test must pass before packaging')
+
+
+def require_dynamic_rates_regression(body):
+    stages=body.get('stages',[])
+    if not isinstance(stages,list) or not all(isinstance(item,dict) for item in stages):
+        raise ValueError('Native dynamic rates regression receipt is invalid')
+    cases=[item for item in stages if item.get('stage')=='remote_mf_codec_probe'
+        and item.get('arguments')==['--dynamic-rates']]
+    if (body.get('runtime_tests_requested') is not True or len(cases)!=1
+        or cases[0].get('exit')!=0 or cases[0].get('timeout')
+        or any(item.get('exit')!=0 for item in stages)):
+        raise ValueError('Native dynamic rates regression must pass before packaging')
 
 
 def main():

@@ -32,14 +32,17 @@ bool DesktopWorker::input_guard(){
 bool DesktopWorker::command(const ipc::Message& message){
     const auto started=GetTickCount64();bool accepted=false;
     struct Timed{
-        WorkerStatus& status;std::uint64_t start;bool input;bool& accepted;
+        WorkerStatus& status;std::uint64_t start;bool input;bool& accepted;unsigned down_type;
         std::uint64_t us=monotonic_us();
         ~Timed(){
             status.latency[1].record(monotonic_us()-us);
             status.command_max_ms=std::max(status.command_max_ms,static_cast<std::uint32_t>(std::min<std::uint64_t>(GetTickCount64()-start,UINT32_MAX)));
             if(input){WorkerStatus::increment(status.input_received);WorkerStatus::increment(accepted?status.input_accepted:status.input_rejected);}
+            if(input && (down_type==1 || down_type==2)){auto& counts=down_type==2?status.button_down:status.key_down;
+                WorkerStatus::increment(counts[0]);WorkerStatus::increment(counts[accepted?1:2]);}
         }
-    } timed{status_,started,message.header.kind==ipc::Kind::input,accepted};
+    } timed{status_,started,message.header.kind==ipc::Kind::input,accepted,
+        message.payload.size()==24 && message.payload[1]==1?unsigned(message.payload[0]):0u};
     if(runtime_.ended())return false;
     if(!initial_lease_){
         if(message.header.kind!=ipc::Kind::lease)return false;
@@ -59,11 +62,14 @@ bool DesktopWorker::command(const ipc::Message& message){
     if(accepted && message.header.kind==ipc::Kind::consumed)frames_->release_sequence(message.header.desktop_generation,message.header.frame_sequence);
     return accepted;
 }
-void DesktopWorker::queue_observation(std::uint32_t coalesced,std::uint32_t high_water,std::uint64_t age,bool stale_input){
+void DesktopWorker::queue_observation(std::uint32_t coalesced,std::uint32_t high_water,std::uint64_t age,bool stale_input,unsigned down_type,bool stale_presented){
     status_.moves_coalesced=coalesced;status_.queue_high_water=high_water;
     status_.queue_age_max_ms=std::max(status_.queue_age_max_ms,static_cast<std::uint32_t>(std::min<std::uint64_t>(age,UINT32_MAX)));
     status_.latency[0].record(age*1000);
     if(stale_input){WorkerStatus::increment(status_.input_received);WorkerStatus::increment(status_.input_rejected);WorkerStatus::increment(status_.input_stale);WorkerStatus::increment(status_.rejections[5]);}
+    if(stale_input && (down_type==1 || down_type==2)){auto& counts=down_type==2?status_.button_down:status_.key_down;
+        WorkerStatus::increment(counts[0]);WorkerStatus::increment(counts[2]);}
+    if(stale_presented)WorkerStatus::increment(status_.stale_presented_dropped);
 }
 std::optional<FrameTicket> DesktopWorker::poll(){
     if(!initial_lease_ || runtime_.ended())return std::nullopt;

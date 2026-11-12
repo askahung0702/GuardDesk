@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdio>
 #include <stdexcept>
+#include <limits>
 
 namespace remote {
 using Microsoft::WRL::ComPtr;
@@ -183,8 +184,28 @@ std::vector<std::uint8_t> H264Encoder::output() {
     std::vector<std::uint8_t> packet(length);std::memcpy(packet.data(),bytes,length);return packet;
 }
 
-std::vector<std::uint8_t> H264Encoder::encode(const std::vector<std::uint8_t>& nv12,bool keyframe) {
+bool H264Encoder::set_bitrate(unsigned bitrate){
+    const auto failed=[&](HRESULT code,unsigned line){selection_.rejected_hresult=static_cast<std::uint32_t>(code);selection_.rejected_line=line;return false;};
+    if(bitrate<64000 || bitrate>20000000 || !transform_)return failed(E_INVALIDARG,__LINE__);
+    ComPtr<ICodecAPI> api;const auto query=transform_.As(&api);if(FAILED(query))return failed(query,__LINE__);
+    const auto supported=api->IsSupported(&CODECAPI_AVEncCommonMeanBitRate);if(supported!=S_OK)return failed(supported,__LINE__);
+    const auto modifiable=api->IsModifiable(&CODECAPI_AVEncCommonMeanBitRate);
+    // The fixed Microsoft software MFT may implement IsSupported/SetValue but
+    // return E_NOTIMPL for this advisory query. The documented live setter is
+    // authoritative there; S_FALSE, hardware unknowns and other errors fail.
+    if(modifiable!=S_OK && !(modifiable==E_NOTIMPL && !selection_.hardware_active))return failed(modifiable,__LINE__);
+    VARIANT minimum{},maximum{},step{};
+    const auto range=api->GetParameterRange(&CODECAPI_AVEncCommonMeanBitRate,&minimum,&maximum,&step);
+    const bool fits=range!=S_OK || (minimum.vt==VT_UI4 && maximum.vt==VT_UI4 && bitrate>=minimum.ulVal && bitrate<=maximum.ulVal &&
+        (step.vt!=VT_UI4 || step.ulVal==0 || (bitrate-minimum.ulVal)%step.ulVal==0));
+    VariantClear(&minimum);VariantClear(&maximum);VariantClear(&step);if(!fits)return failed(E_INVALIDARG,__LINE__);
+    VARIANT value{};value.vt=VT_UI4;value.ulVal=bitrate;
+    const auto set=api->SetValue(&CODECAPI_AVEncCommonMeanBitRate,&value);if(FAILED(set))return failed(set,__LINE__);
+    bitrate_=bitrate;return true;
+}
+std::vector<std::uint8_t> H264Encoder::encode(const std::vector<std::uint8_t>& nv12,bool keyframe,std::int64_t capture_us) {
     if(nv12.size()!=std::size_t(width_)*height_*3/2)throw std::invalid_argument("nv12_size");
+    capture_us_=capture_us;
     try {auto result=encode_once(nv12,keyframe);
         if(selection_.hardware_active){if(result.empty())throw std::runtime_error("hardware_empty_output");
             const auto prefix=result.size()>=4 && ((result.at(0)==0 && result.at(1)==0 && result.at(2)==1) ||
@@ -211,9 +232,14 @@ std::vector<std::uint8_t> H264Encoder::encode_once(const std::vector<std::uint8_
     BYTE* bytes=nullptr;check(buffer->Lock(&bytes,nullptr,nullptr));
     std::memcpy(bytes,nv12.data(),expected);check(buffer->Unlock());
     check(buffer->SetCurrentLength(static_cast<DWORD>(expected)));check(sample->AddBuffer(buffer.Get()));
-    check(sample->SetSampleTime(static_cast<LONGLONG>(frame_*10000000/fps_)));
+    LONGLONG sample_time=static_cast<LONGLONG>(frame_*10000000/fps_);
+    if(capture_us_>0){if(!origin_us_)origin_us_=capture_us_;
+        if(capture_us_<origin_us_ || capture_us_-origin_us_>(std::numeric_limits<LONGLONG>::max)()/10)throw std::invalid_argument("encoder_capture_time");
+        sample_time=(capture_us_-origin_us_)*10;}
+    sample_time=std::max<LONGLONG>(last_sample_time_+1,sample_time);
+    check(sample->SetSampleTime(sample_time));
     check(sample->SetSampleDuration(10000000/fps_));
-    check(transform_->ProcessInput(0,sample.Get(),0));++frame_;
+    check(transform_->ProcessInput(0,sample.Get(),0));++frame_;last_sample_time_=sample_time;
     return output();
 }
 

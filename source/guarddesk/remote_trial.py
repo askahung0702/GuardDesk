@@ -48,6 +48,15 @@ def native_diagnostics(supervisor=None,*,launcher=None):
     snapshot=launcher.snapshot()
     if not isinstance(snapshot,dict):return None
     result={'contexts':[]}
+    def counters(raw,names):
+        if not isinstance(raw,dict):return {}
+        return {key:raw[key] for key in names if type(raw.get(key)) is int and 0<=raw[key]<=0xffffffff}
+    def histogram(raw):
+        fields=counters(raw,('count','max'))
+        bins=raw.get('bins') if isinstance(raw,dict) else None
+        if (len(fields)!=2 or not isinstance(bins,list) or len(bins)!=8
+            or any(type(n) is not int or not 0<=n<=0xffffffff for n in bins)):return None
+        return {**fields,'bins':list(bins)}
     def clean(error):
         if not isinstance(error,dict):return None
         value={}
@@ -79,14 +88,35 @@ def native_diagnostics(supervisor=None,*,launcher=None):
                     if type(media.get(key)) is bool:fields[key]=media[key]
                 for key in ('capture_sequence','encoded_frames','age_ms'):
                     if type(media.get(key)) is int and 0<=media[key]<=0xffffffffffffffff:fields[key]=media[key]
+                fields.update(counters(media,('codec_rebuilds','hardware_frames','hardware_fallbacks','hardware_candidates',
+                    'bitrate_updates','bitrate_failures','unknown_frame_timestamps','codec_failures')))
+                rate=media.get('target_bitrate_bps')
+                if type(rate) is int and 0<=rate<=20000000:fields['target_bitrate_bps']=rate
+                timing=histogram(media.get('encode_mft_us'))
+                if timing is not None:fields['encode_mft_us']=timing
                 if fields:value['media']=fields
             worker=item.get('worker')
             if isinstance(worker,dict):
                 fields={}
                 for key in ('stage','api','error','polls','acquired','published','resets','age_ms',
                     'input_received','input_accepted','input_rejected','input_stale','moves_coalesced',
-                    'queue_high_water','queue_age_max_ms','command_max_ms'):
+                    'queue_high_water','queue_age_max_ms','command_max_ms','last_pause_reason','housekeeping',
+                    'guard_checks','capture_pending','stale_presented_dropped'):
                     if type(worker.get(key)) is int and 0<=worker[key]<=0xffffffff:fields[key]=worker[key]
+                for key in ('button_down','key_down'):
+                    event=counters(worker.get(key),('received','applied','rejected'))
+                    if event:fields[key]=event
+                reasons=counters(worker.get('input_reject_reasons'),('other','schema_identity_sequence','authorization',
+                    'rate','desktop','frame_or_stale','view_only','payload_or_ledger'))
+                if reasons:fields['input_reject_reasons']=reasons
+                timings=worker.get('latency_us')
+                if isinstance(timings,dict):
+                    bounded={key:timing_value for key in ('queue','command','guard','send_input','capture')
+                        if (timing_value:=histogram(timings.get(key))) is not None}
+                    if bounded:fields['latency_us']=bounded
+                resets=worker.get('reset_reasons')
+                if isinstance(resets,list) and len(resets)==8 and all(type(n) is int and 0<=n<=0xffffffff for n in resets):
+                    fields['reset_reasons']=list(resets)
                 if fields:value['worker']=fields
             ages=[value[k]['age_ms'] for k in ('media','worker') if isinstance(value.get(k),dict) and type(value[k].get('age_ms')) is int]
             value['fresh']=value.get('state')=='active' and len(ages)==2 and max(ages)<=5000

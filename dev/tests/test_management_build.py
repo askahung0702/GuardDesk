@@ -5,7 +5,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from build_management import output_path,build_lock,one_new,Pipeline,passing
 from management_package import publish,verify_zip,clean_scan
 from native_inputs import prepare
-from worktree import digest
+from worktree import digest,webrtc_source
 
 class ManagementBuildTest(unittest.TestCase):
     def setUp(self):
@@ -21,6 +21,22 @@ class ManagementBuildTest(unittest.TestCase):
         self.assertTrue(clean_scan(0,b'Scan finished. Found no threats.'))
         for code,raw in ((0,b'Threat remediated'),(0,b''),(2,b'found no threats.'),(0,'unknown localized result'.encode())):
             self.assertFalse(clean_scan(code,raw))
+    def test_explicit_webrtc_checkout_requires_pinned_clean_tracked_source(self):
+        vendor=self.root/'external'/'src';vendor.mkdir(parents=True);(vendor/'.git').mkdir()
+        dependencies=self.root/'dependencies';dependencies.mkdir()
+        revision='a'*40
+        (dependencies/'toolchains.lock.json').write_text(json.dumps({'webrtc':{'revision':revision}}))
+        success=subprocess.CompletedProcess([],0,revision+'\n','')
+        clean=subprocess.CompletedProcess([],0,'','')
+        with patch('worktree.subprocess.run',side_effect=[success,clean]) as run:
+            self.assertEqual(webrtc_source(self.root,vendor),vendor.resolve())
+            self.assertIn('safe.directory='+str(vendor.resolve()),run.call_args_list[0].args[0])
+            self.assertIn('--quiet',run.call_args_list[1].args[0])
+        with patch('worktree.subprocess.run',return_value=subprocess.CompletedProcess([],0,'b'*40+'\n','')):
+            with self.assertRaisesRegex(ValueError,'revision differs'):webrtc_source(self.root,vendor)
+        with patch('worktree.subprocess.run',side_effect=[success,subprocess.CompletedProcess([],1)]):
+            with self.assertRaisesRegex(ValueError,'local changes'):webrtc_source(self.root,vendor)
+        with self.assertRaises(ValueError):webrtc_source(self.root,self.root/'source')
     def test_existing_package_or_checksum_never_overwritten(self):
         target,_=output_path(self.root,'0.4.106','001');target.parent.mkdir()
         for path in (target,target.with_suffix('.zip.sha256')):

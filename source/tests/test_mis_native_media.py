@@ -44,6 +44,42 @@ class Client:
 
 
 class NativeControllerTests(unittest.TestCase):
+    def test_diagnostic_snapshot_has_no_native_call_or_authority_side_effect(self):
+        controller=self.controller()
+        self.assertIsNone(controller.diagnostics_snapshot())
+        controller.diagnostic_status={'input_events':{'button_down':{'offered':4,'transmitted':2}}}
+        with patch.object(controller.library,'diagnostics',side_effect=AssertionError('UI must use cache')):
+            first=controller.diagnostics_snapshot();first['input_events']['button_down']['offered']=999
+            self.assertEqual(controller.diagnostics_snapshot()['input_events']['button_down']['offered'],4)
+        self.assertFalse(controller.stop_event.is_set());self.assertEqual(controller.library.grants,[])
+        controller.diagnostic_tick=time.monotonic()-2
+        self.assertGreaterEqual(controller.diagnostics_snapshot()['sample_age_ms'],2000)
+        controller.stop()
+        self.assertFalse(controller.diagnostics_snapshot()['session_active'])
+
+    def test_diagnostics_separate_click_queue_wire_and_failure_without_input_contents(self):
+        from types import SimpleNamespace
+        from guarddesk.mis_native_media import NativeLibrary
+        inputs=[1,3,2,4]+[0]*60
+        inputs[12:16]=[5,4,3,1]
+        inputs[30]=2;inputs[35]=1;inputs[38:41]=[8,1,2]
+        def fill(values):
+            def read(handle,output,count):
+                self.assertEqual(count,len(values))
+                for i,value in enumerate(values):output[i]=value
+                return 0
+            return read
+        library=NativeLibrary.__new__(NativeLibrary)
+        library.dll=SimpleNamespace(GDMisDiagnostics=fill([1]+[0]*31),GDMisTransportDiagnostics=fill([1]+[0]*19),GDMisInputDiagnostics=fill(inputs))
+        result=library.diagnostics(1)
+        self.assertEqual(result['input_events']['button_down'],{'offered':5,'queued':4,'transmitted':3,'discarded':1})
+        self.assertEqual(result['input_failures']['no_frame'],2);self.assertEqual(result['input_failures']['expired'],1)
+        self.assertEqual(result['last_action_failure'],{'reason':8,'revision':1,'category':2})
+        for at,value in ((0,2),(1,11),(3,7),(38,11),(40,4),(41,1)):
+            prior=inputs[at];inputs[at]=value
+            with self.subTest(field=at),self.assertRaises(ValueError):library.diagnostics(1)
+            inputs[at]=prior
+
     def test_native_cancelled_result_preserves_first_scalar_end_reason(self):
         from types import SimpleNamespace
         from guarddesk.mis_native_media import NativeLibrary

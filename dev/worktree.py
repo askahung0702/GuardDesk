@@ -1,6 +1,6 @@
 """Portable source staging. Only generated runtime files may be replaced."""
 from pathlib import Path
-import hashlib,json,os,stat,sys
+import hashlib,json,os,stat,sys,subprocess
 
 def digest(path):
     with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
@@ -70,4 +70,15 @@ def environment(root):
 def python(root):
     path=Path(root)/'runtime/dev-environment/venv/Scripts/python.exe'
     if not path.is_file():raise ValueError('Run: python dev/bootstrap.py --wheelhouse <folder> (or --download)')
+    return path
+
+def webrtc_source(root,explicit=None):
+    """Explicit existing checkout only; never downloads or changes Git trust."""
+    path=(Path(explicit) if explicit is not None else Path(root)/'runtime/w/src').resolve(strict=True)
+    if not (path/'.git').exists():raise ValueError('Pinned WebRTC checkout missing')
+    expected=json.loads((Path(root)/'dependencies/toolchains.lock.json').read_text(encoding='utf-8'))['webrtc']['revision']
+    result=subprocess.run(['git','-c','safe.directory='+str(path),'-C',str(path),'rev-parse','HEAD'],capture_output=True,text=True,check=True,timeout=30)
+    if result.stdout.strip()!=expected:raise ValueError('Pinned WebRTC revision differs')
+    dirty=subprocess.run(['git','-c','safe.directory='+str(path),'-C',str(path),'diff','--quiet','HEAD','--'],check=False,timeout=30)
+    if dirty.returncode:raise ValueError('Tracked WebRTC source has local changes; preserve and review')
     return path

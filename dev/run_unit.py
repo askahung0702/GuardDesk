@@ -10,7 +10,7 @@ NAMES=['test_remote_session_lifecycle','test_remote_consent_once','test_remote_t
     'test_remote_autonomous','test_remote_broker_concurrency','test_machine_agent',
     'test_machine_remote_global.GlobalRouterTest','test_machine_remote_global.SessionLifetimeTest',
     'test_remote_admin.AdminRouterTest','test_remote_native_signaling.NativeLeaseTest',
-    'test_remote_relay.RelayPolicyTest','test_remote_build_receipts']
+    'test_remote_relay.RelayPolicyTest','test_remote_build_receipts','test_remote_trial.TrialTest']
 EXPECTED_SKIPS={
     'test_mis_native_media.ModuleLifetimePinsTest.test_real_cached_module_cannot_rename_after_session_close':
     'owned native cohort fixture unavailable'}

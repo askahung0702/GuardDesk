@@ -43,16 +43,17 @@ class NativeBrokerTest(unittest.TestCase):
     def test_worker_status_is_scalar_only_and_never_grants_authority(self):
         lib=Library();job=self.job(lib)
         self.assertIsNone(job.worker_snapshot())
-        values=[3,3,106,0x887a0022,7,0,0,1,10,7,3,2,12,4,99,17]+[0]*80
+        values=[4,3,106,0x887a0022,7,0,0,1,10,7,3,2,12,4,99,17]+[0]*80
         job.receive_worker(struct.pack('<96I',*values))
         lib.now+=25
         self.assertEqual(job.worker_snapshot(),dict(stage=3,api=106,error=0x887a0022,polls=7,acquired=0,published=0,resets=1,age_ms=25,
             input_received=10,input_accepted=7,input_rejected=3,input_stale=2,moves_coalesced=12,queue_high_water=4,queue_age_max_ms=99,command_max_ms=17,
             last_pause_reason=0,housekeeping=0,guard_checks=0,capture_pending=0,reset_reasons=[0]*8,
+            stale_presented_dropped=0,button_down={'received':0,'applied':0,'rejected':0},key_down={'received':0,'applied':0,'rejected':0},
             input_reject_reasons={name:0 for name in ('other','schema_identity_sequence','authorization','rate','desktop','frame_or_stale','view_only','payload_or_ledger')},
             latency_us={name:{'count':0,'max':0,'bins':[0]*8} for name in ('queue','command','guard','send_input','capture')}))
         self.assertFalse(job.granted);self.assertEqual(lib.commands,[]);self.assertEqual(lib.writes,[])
-        for at,value in ((0,2),(1,14),(2,113),(13,33),(16,8),(95,1)):
+        for at,value in ((0,2),(0,3),(1,14),(2,113),(13,33),(16,8),(93,1),(95,1)):
             invalid=values.copy();invalid[at]=value
             with self.subTest(field=at),self.assertRaises(ValueError):job.receive_worker(struct.pack('<96I',*invalid))
         for data in (b'',b'X'*65,struct.pack('<8I',1,3,106,0,0,0,0,0),
@@ -126,13 +127,18 @@ class NativeBrokerTest(unittest.TestCase):
     def test_media_status_is_bounded_scalar_snapshot_without_authority(self):
         lib=Library();job=self.job(lib)
         self.assertIsNone(job.media_snapshot())
-        for i in range(100):job.receive(media_packet(6,SID,i+1,struct.pack('<IIII',1,11,i,0)))
+        for i in range(100):job.receive(media_packet(6,SID,i+1,struct.pack('<24I',2,11,i,0,*([0]*20))))
         lib.now+=2500
         self.assertEqual(job.media_snapshot(),{'peer_connected':True,'channel_open':True,
-            'codec_failed':False,'stale_slot':True,'capture_sequence':99,'encoded_frames':0,'age_ms':2500})
+            'codec_failed':False,'stale_slot':True,'capture_sequence':99,'encoded_frames':0,'age_ms':2500,
+            **{name:0 for name in ('codec_rebuilds','hardware_frames','hardware_fallbacks','hardware_candidates','bitrate_updates','bitrate_failures','target_bitrate_bps','unknown_frame_timestamps','codec_failures')},
+            'encode_mft_us':{'count':0,'max':0,'bins':[0]*8}})
         self.assertEqual(lib.commands,[]);self.assertEqual(lib.writes,[]);self.assertFalse(job.granted)
         for payload in (b'',b'x'*17,struct.pack('<IIII',0,0,0,0),struct.pack('<IIII',1,16,0,0)):
             with self.assertRaises(ValueError):job.receive(media_packet(6,SID,101,payload))
+        for at,value in ((0,1),(1,16),(10,20000001),(23,1)):
+            bad=[2,0]+[0]*22;bad[at]=value
+            with self.subTest(field=at),self.assertRaises(ValueError):job.receive(media_packet(6,SID,102,struct.pack('<24I',*bad)))
     def test_launcher_retains_stopped_jobs_for_bounded_shutdown_join(self):
         lib=Library();lib.block=True;job=self.job(lib);job.reserve();job.start();self.assertTrue(lib.enter.wait(1))
         launcher=Launcher(SimpleNamespace(),library=lib);launcher.entries[SID]=job;launcher.revoke(SID)

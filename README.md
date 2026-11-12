@@ -2,7 +2,7 @@
 
 GuardDesk 是以 Windows 端點管理為主的開發專案，包含管理中心、全機 Agent、MIS 遠端協助工具、原生 Windows 元件與瀏覽器擴充。
 
-**本 repository 提供經去識別化整理的原始碼與開發工具，不提供可直接部署的正式安裝包。** 參照功能基線為 `0.4.105 / 001`；公開來源經過範例資料與文件整理，與內部歷史成品的位元組不相同，也不繼承其現場驗收結論。
+**本 repository 提供經去識別化整理的原始碼與開發工具，不提供可直接部署的正式安裝包。** 參照功能基線為 `0.4.108 / 001`；公開來源經過範例資料與文件整理，與內部歷史成品的位元組不相同，也不繼承其現場驗收結論。
 
 ## 主要功能與架構
 
@@ -81,3 +81,5 @@ python dev/bootstrap.py --wheelhouse C:\ApprovedWheels
 ---
 
 **English:** Windows endpoint-management development sources, including a Python management center, endpoint orchestration, native Windows services, native remote assistance and browser extensions. This is a sanitized source snapshot, not a certified or production-ready binary release. Start with the development guide; private historical release artifacts and field evidence are intentionally not distributed.
+
+2026-11-12：同步108累積來源，包含過期畫面ACK處理、輸入／媒體固定診斷、動態碼率，以及啟動stats格式不一致的修正。上游使用者已接受108作為內部功能基線；本公開快照仍只有去識別化來源。[變更與回歸邊界](doc/60-engineering-lessons-and-regression-rules.md#2026-11-12累積改善與108啟動格式修正)。

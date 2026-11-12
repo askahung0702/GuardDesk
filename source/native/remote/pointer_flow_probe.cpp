@@ -2,6 +2,7 @@
 #include "pointer_flow.hpp"
 #include "latest_task.hpp"
 #include "latency.hpp"
+#include "input_diagnostics.hpp"
 #include <atomic>
 #include <windows.h>
 #include <iostream>
@@ -58,6 +59,20 @@ void pacing(){
     PointerPacer due;due.replace(message(1).payload,0);need(due.take(0).has_value(),"first_move_delayed");
     due.replace(message(2).payload,10);need(due.wait_ms(10)==23 && due.wait_ms(32)==1 && due.wait_ms(33)==0 && due.take(33).has_value(),"native_deadline_wait_quantized");
     for(unsigned interval:{0u,15u,34u,1000u}){bool refused=false;try{PointerPacer bad(interval);}catch(const std::invalid_argument&){refused=true;}need(refused,"unsafe_pointer_rate");}
+}
+void diagnostic_categories(){
+    InputDiagnostics stats;auto down=message(1,ipc::Kind::input,2).payload;
+    auto category=input_category(down);need(category==2,"button_down_category");
+    stats.count(category,0);stats.count(category,1);stats.count(category,2);
+    need(stats.values[12]==1 && stats.values[13]==1 && stats.values[14]==1 && stats.values[15]==0,"queue_not_distinguished_from_wire");
+    stats.rejected(category,InputFailure::expired,true);
+    stats.rejected(4,InputFailure::no_frame);
+    need(stats.values[15]==1 && stats.values[35]==1 && stats.values[30]==1,"input_rejection_counts");
+    need(stats.values[38]==8 && stats.values[39]==1 && stats.values[40]==2,"pointer_overwrote_click_feedback");
+    need(std::wstring(input_failure_text(InputFailure::backpressure))!=input_failure_text(InputFailure::no_frame),"all_failures_claimed_stale_frame");
+    stats.values[12]=UINT32_MAX;stats.count(2,0);need(stats.values[12]==UINT32_MAX,"input_diagnostic_overflow");
+    need(input_category({})==6 && input_category(message(2,ipc::Kind::input,1).payload)==0,"diagnostic_category_schema");
+    for(unsigned i=41;i<64;++i)need(stats.values[i]==0,"input_contents_in_diagnostics");
 }
 void independent_slow_capture(){
     struct Result{unsigned value=0;};using Task=LatestTask<unsigned,Result>;
@@ -136,6 +151,7 @@ Result overload(bool corrected){
 }
 }
 int main(){try{
+    diagnostic_categories();
     ordering();pacing();capture_lifecycle();independent_slow_capture();const auto old=overload(false),now=overload(true);
     need(old.overflow && old.stale>0 && !now.overflow && now.stale==0 && now.applied>=80 && now.max_age<100 && now.first_age<34,"overload_not_improved");
     std::cout<<"{\"passed\":true,\"synthetic_command_cost_ms\":15,\"baseline_bounded_queue_overflow\":true,\"baseline_offered\":"<<old.offered<<",\"baseline_stale_inputs\":"<<old.stale<<",\"baseline_max_queue_age_ms\":"<<old.max_age

@@ -152,6 +152,38 @@ class TrialTest(unittest.TestCase):
         result=remote_trial.native_diagnostics(launcher=router.native_launcher)['contexts'][0]['worker']
         for key in ('stage','error','polls'):self.assertNotIn(key,result)
 
+    def test_performance_diagnostics_survive_heartbeat_with_bounded_fixed_fields(self):
+        histogram={'count':6,'max':42,'bins':[1,2,3,0,0,0,0,0],'private':'PRIVATE'}
+        media={'codec_rebuilds':2,'hardware_frames':5,'hardware_fallbacks':1,'hardware_candidates':1,
+            'bitrate_updates':3,'bitrate_failures':0,'target_bitrate_bps':800000,'unknown_frame_timestamps':0,
+            'codec_failures':0,'encode_mft_us':histogram,'private':'PRIVATE'}
+        worker={'stale_presented_dropped':2,'button_down':{'received':9,'applied':7,'rejected':2,'key':'PRIVATE'},
+            'key_down':{'received':4,'applied':4,'rejected':0},'input_reject_reasons':{'frame_or_stale':2,'private':'PRIVATE'},
+            'latency_us':{name:histogram for name in ('queue','command','guard','send_input','capture','private')},
+            'reset_reasons':[1,0,0,0,0,0,0,0]}
+        launcher=SimpleNamespace(snapshot=lambda:{'contexts':[{'media':media,'worker':worker}]})
+        self.agent.call=Mock(return_value={})
+        remote_trial.heartbeat(self.agent,SimpleNamespace(platform=SimpleNamespace(native_launcher=launcher)))
+        sent=self.agent.call.call_args.args[1]['inventory']['collectors']['remote_only_trial']['native_remote']['contexts'][0]
+        self.assertEqual(sent['media']['target_bitrate_bps'],800000)
+        self.assertEqual(sent['media']['encode_mft_us'],{k:v for k,v in histogram.items() if k!='private'})
+        self.assertEqual(sent['worker']['button_down'],{'received':9,'applied':7,'rejected':2})
+        self.assertEqual(set(sent['worker']['latency_us']),{'queue','command','guard','send_input','capture'})
+        self.assertNotIn('PRIVATE',json.dumps(sent));self.assertNotIn('private',json.dumps(sent))
+        self.assertLess(len(json.dumps(sent)),3000)
+        # Sanitation must neither retain mutable source arrays nor grant input.
+        sent['media']['encode_mft_us']['bins'][0]=999
+        self.assertEqual(histogram['bins'][0],1)
+        media.update(codec_rebuilds=True,hardware_frames=-1,bitrate_failures=2**32,target_bitrate_bps=20000001)
+        media['encode_mft_us']={**histogram,'bins':[0]*9}
+        worker.update(button_down={'received':True,'applied':-1,'rejected':2**32},reset_reasons=[0]*9)
+        worker['latency_us']['capture']={**histogram,'bins':[True]*8}
+        clean=remote_trial.native_diagnostics(launcher=launcher)['contexts'][0]
+        for key in ('codec_rebuilds','hardware_frames','bitrate_failures','target_bitrate_bps','encode_mft_us'):
+            self.assertNotIn(key,clean['media'])
+        self.assertNotIn('button_down',clean['worker']);self.assertNotIn('reset_reasons',clean['worker'])
+        self.assertNotIn('capture',clean['worker']['latency_us'])
+
     def test_router_rejects_collection_and_sanitizes_untrusted_heartbeat(self):
         state={1:{'sid':'S-1-5-21-11','account':'OWNED\\A','logon':10,'active':True}}
         peer={'session':1,'sid':state[1]['sid'],'logon':10};call=Mock(return_value={})

@@ -33,5 +33,6 @@ GD_MIS_API DWORD __stdcall GDMisWake(void*); // cross-thread mailbox notificatio
 GD_MIS_API DWORD __stdcall GDMisDiagnostics(void*,std::uint32_t*,std::uint32_t); // fixed scalar snapshot
 GD_MIS_API DWORD __stdcall GDMisEndReason(void*,std::uint32_t*); // first cause, scalar enum; query before Close
 GD_MIS_API DWORD __stdcall GDMisTransportDiagnostics(void*,std::uint32_t*,std::uint32_t); // 20 bounded scalars
+GD_MIS_API DWORD __stdcall GDMisInputDiagnostics(void*,std::uint32_t*,std::uint32_t); // 64 content-free scalars
 GD_MIS_API DWORD __stdcall GDMisStop(void*); // cross-thread immediate lease fence
 GD_MIS_API DWORD __stdcall GDMisClose(void*); // creator thread, after stop

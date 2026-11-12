@@ -63,11 +63,30 @@ class Encoder final : public webrtc::VideoEncoder {
   std::unique_ptr<H264Encoder> codec_;
   webrtc::EncodedImageCallback* callback_=nullptr;
   unsigned width_=0,height_=0,fps_=30,bitrate_=1000000;
+  unsigned requested_bitrate_=1000000;
+  std::uint64_t rate_updated_tick_=0;
   bool paused_=false,reset_=false;
   bool hardware_disabled_=false;
   std::uint64_t epoch_=0;
   std::vector<std::uint8_t> nv12_;
   std::deque<std::uint32_t> timestamps_; // bounded delayed MFT output, never a frame queue
+  void apply_rate(){
+    if(!codec_ || requested_bitrate_==bitrate_)return;
+    const auto now=GetTickCount64();const bool decreasing=requested_bitrate_<bitrate_;
+    if(!decreasing && (requested_bitrate_<=bitrate_+bitrate_/10 || (rate_updated_tick_ && now-rate_updated_tick_<1000)))return;
+    const auto wanted=requested_bitrate_;
+    if(!reset_){
+      bool hardware=false;
+      const bool updated=queue_.call([&]{hardware=codec_->selection().hardware_active;
+        try{return codec_->set_bitrate(wanted);}catch(...){return false;}});
+      if(updated)AtomicLatencyHistogram::add(metrics_->bitrate_updates);
+      else {AtomicLatencyHistogram::add(metrics_->bitrate_failures);reset_=true;
+        // Unsupported live rates must not repeatedly select/rebuild the same
+        // hardware MFT. Retry the established software path once at this rate.
+        if(hardware && !hardware_disabled_){hardware_disabled_=true;AtomicLatencyHistogram::add(metrics_->hardware_fallbacks);}}
+    }
+    bitrate_=wanted;rate_updated_tick_=now;metrics_->target_bitrate=bitrate_;
+  }
  public:
   explicit Encoder(std::shared_ptr<CodecMetrics> metrics):metrics_(std::move(metrics)){++metrics_->encoders;}
   ~Encoder() override {Release();}
@@ -78,6 +97,7 @@ class Encoder final : public webrtc::VideoEncoder {
       settings->maxFramerate<1 || settings->maxFramerate>30 || !queue_.start())return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     width_=settings->width;height_=settings->height;fps_=settings->maxFramerate;
     bitrate_=std::clamp(settings->startBitrate,64u,20000u)*1000u;
+    requested_bitrate_=bitrate_;rate_updated_tick_=0;metrics_->target_bitrate=bitrate_;
     const bool created=queue_.call([&]{try{codec_=std::make_unique<H264Encoder>(width_,height_,fps_,bitrate_,hardware_disabled_?EncoderPreference::software_only:EncoderPreference::prefer_hardware);return true;}
       catch(const std::exception&){return false;}});
     if(!created){++metrics_->failures;return WEBRTC_VIDEO_CODEC_ERROR;}
@@ -97,6 +117,7 @@ class Encoder final : public webrtc::VideoEncoder {
         if(!epoch){callback_->OnFrameDropped(frame.rtp_timestamp(),0,true);return WEBRTC_VIDEO_CODEC_OK;}
         if(epoch!=epoch_){epoch_=epoch;reset_=true;}
       }
+      apply_rate();
       if(reset_){timestamps_.clear();key=true;}
       auto image=frame.video_frame_buffer()->ToI420();if(!image)return WEBRTC_VIDEO_CODEC_ERROR;
       auto surface=std::span<std::uint8_t>(nv12_);
@@ -104,14 +125,16 @@ class Encoder final : public webrtc::VideoEncoder {
           surface.data(),width_,surface.subspan(std::size_t(width_)*height_).data(),width_,width_,height_)!=0)return WEBRTC_VIDEO_CODEC_ERROR;
       if(timestamps_.size()>=4){++metrics_->failures;return WEBRTC_VIDEO_CODEC_ERROR;}
       timestamps_.push_back(frame.rtp_timestamp());std::vector<std::uint8_t> packet;
+      const auto encode_started=monotonic_us();
       const bool encode_ok=queue_.call([&]{try{
-        if(reset_)codec_=std::make_unique<H264Encoder>(width_,height_,fps_,bitrate_,hardware_disabled_?EncoderPreference::software_only:EncoderPreference::prefer_hardware);
-        const auto before=codec_->selection();packet=codec_->encode(nv12_,key);const auto after=codec_->selection();
+        if(reset_){codec_=std::make_unique<H264Encoder>(width_,height_,fps_,bitrate_,hardware_disabled_?EncoderPreference::software_only:EncoderPreference::prefer_hardware);AtomicLatencyHistogram::add(metrics_->codec_rebuilds);}
+        const auto before=codec_->selection();packet=codec_->encode(nv12_,key,frame.timestamp_us());const auto after=codec_->selection();
         if(after.hardware_frames>before.hardware_frames)++metrics_->hardware_frames;
         metrics_->hardware_candidates=std::max(metrics_->hardware_candidates.load(),after.candidates);
         if(after.fallback && !hardware_disabled_){hardware_disabled_=true;++metrics_->hardware_fallbacks;}
         return true;
       }catch(const std::exception&){return false;}});
+      metrics_->encode_us.record(monotonic_us()-encode_started);
       reset_=false;
       if(!encode_ok){++metrics_->failures;return WEBRTC_VIDEO_CODEC_ERROR;}
       if(packet.empty())return WEBRTC_VIDEO_CODEC_OK;
@@ -145,11 +168,11 @@ class Encoder final : public webrtc::VideoEncoder {
   void SetRates(const RateControlParameters& value) override {
     const auto rate=value.bitrate.get_sum_bps();paused_=rate==0;
     if(paused_)return;
-    const auto bitrate=std::clamp(rate,64000u,20000000u);
-    const auto fps=std::isfinite(value.framerate_fps) && value.framerate_fps>0?static_cast<unsigned>(std::clamp(value.framerate_fps,1.0,30.0)):fps_;
-    // Avoid reconstructing for tiny BWE fluctuations. A material change resets
-    // the software fallback and forces an IDR; hardware/dynamic MFT is pending.
-    if(fps!=fps_ || bitrate>bitrate_+bitrate_/4 || bitrate+bitrate/4<bitrate_){fps_=fps;bitrate_=bitrate;reset_=true;}
+    requested_bitrate_=std::clamp(rate,64000u,20000000u);
+    // Do not rebuild on BWE framerate changes. Frame timestamps remain real;
+    // fps_ is the configured encoder ceiling, not a claim of achieved FPS.
+    // Reductions apply immediately, increases coalesce until the next encode.
+    apply_rate();
   }
   EncoderInfo GetEncoderInfo() const override {
     EncoderInfo info;info.implementation_name="GuardDesk-MF-H264-software";

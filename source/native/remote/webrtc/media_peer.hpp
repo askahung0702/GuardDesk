@@ -3,6 +3,7 @@
 #include "ipc_wire.hpp"
 #include "relay_policy.hpp"
 #include "latency.hpp"
+#include "input_diagnostics.hpp"
 #include <string>
 
 namespace remote {
@@ -17,7 +18,10 @@ struct MediaPeerOptions {
 };
 struct MediaSignal{bool offer=false;std::string sdp;};
 enum class MediaEndReason:std::uint32_t {none=0,local_stop=1,authority_expired=2,connection_closed=3,protocol_rejected=4,send_failed=5,callback_failed=6,cleanup_timeout=7};
-struct MediaPeerStats {std::uint64_t encoded=0,decoded=0,codec_failures=0,unknown_timestamps=0;bool channel_open=false,peer_connected=false;std::uint64_t cursor_sent=0,cursor_received=0,cursor_dropped=0,cursor_unsupported=0;};
+struct MediaPeerStats {std::uint64_t encoded=0,decoded=0,codec_failures=0,unknown_timestamps=0;bool channel_open=false,peer_connected=false;std::uint64_t cursor_sent=0,cursor_received=0,cursor_dropped=0,cursor_unsupported=0;
+    std::uint32_t codec_rebuilds=0,hardware_frames=0,hardware_fallbacks=0,hardware_candidates=0,bitrate_updates=0,bitrate_failures=0,target_bitrate=0;
+    std::array<std::uint32_t,10> encode_latency{};
+};
 // Low-privilege product transport. The endpoint worker/SYSTEM process never
 // links this library. Caller owns one app thread for SDP/frame/pump/close;
 // grant and request_stop are immediate, thread-safe authority fences.
@@ -47,6 +51,7 @@ public:
     bool ended() const;
     MediaEndReason end_reason() const;
     std::array<std::uint32_t,20> send_diagnostics() const;
+    std::array<std::uint32_t,64> input_diagnostics() const;
     MediaPeerStats stats() const;
 };
 }

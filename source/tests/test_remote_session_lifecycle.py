@@ -109,7 +109,7 @@ class NativeLifecycleTest(unittest.TestCase):
         job.phase='native_transport'
         self.assertEqual(job.lifecycle_snapshot()['state'],'negotiating')
         job.reserve();job.apply(1000,fixtures.reply())
-        packet=fixtures.media_packet(6,fixtures.SID,1,struct.pack('<IIII',1,3,2,1))
+        packet=fixtures.media_packet(6,fixtures.SID,1,struct.pack('<24I',2,3,2,1,*([0]*20)))
         job.receive(packet)
         self.assertEqual(job.lifecycle_snapshot()['state'],'streaming')
         before=job.deadline;library.now+=2100

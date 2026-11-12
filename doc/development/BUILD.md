@@ -27,8 +27,8 @@ python dev/develop.py notices
 唯一入口是根目錄Build-Management.cmd，明確傳入新版本與修訂：
 
 ```cmd
-Build-Management.cmd --version 0.4.106 --artifact-root C:\ApprovedArtifacts --check
-Build-Management.cmd --version 0.4.106 --artifact-root C:\ApprovedArtifacts
+Build-Management.cmd --version 0.4.109 --artifact-root C:\ApprovedArtifacts --check
+Build-Management.cmd --version 0.4.109 --artifact-root C:\ApprovedArtifacts
 ```
 
 版本須大於參照基線，輸出存在即停止。--check只核對前置。完整流程核對依賴、來源、notices、原生及service收據，組裝匹配cohort，執行來源回歸、完整EXE/MIS角色與PYZ門檻、容量／移除／MSI／升級／生命週期測試，最後驗證真正ZIP、NTFS、中文／空白路徑、CMD碼頁及正常Defender掃描。
@@ -42,3 +42,6 @@ Build-Management.cmd --version 0.4.106 --artifact-root C:\ApprovedArtifacts
 `--reuse-native-from <受控來源>`是明確的選擇，僅當來源／receipt／log／artifact hash完全相符時可重用；去識別化修改過的原生來源可能已與舊cache不符，應重建，不能修改lock硬放行。報告需標記重用，不稱本次重測。
 
 不以修改歷史recipe、略過gate、加入Defender排除或混用DLL取得包。正式發布另需可信簽章及外部Server／端點生命週期、UAC、效能與組織防護驗收。
+
+
+目前參照功能基線為108／001，下一版必須大於108。可顯式指定既有鎖定WebRTC來源：`python dev/develop.py webrtc --webrtc-source C:\Work\WebRTC\src`；完整入口也支援相同參數，仍驗commit／tracked來源乾淨並本次重建owned元件，不自動下載或信任任意cache。完整包新增動態碼率及首次stats producer回歸，要求195項來源零skip及18項媒體案例；公開入門測試的預期fixture skip不能取代該門檻。受控artifact-root需另提供CURRENT-BASELINE所指108原包及全部歷史鎖定輸入，本repository不提供這些私有bytes。

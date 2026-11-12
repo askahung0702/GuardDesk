@@ -1,26 +1,31 @@
 {
   "format": 1,
   "snapshot": "sanitized_public_source",
-  "prepared_on": "2026-11-11",
-  "upstream_source_revision": 1772,
-  "reference_version": "0.4.105/001",
+  "prepared_on": "2026-11-12",
+  "upstream_source_revision": 1773,
+  "reference_version": "0.4.108/001",
   "public_binary_release": false,
   "private_operational_history_distributed": false,
   "source_tests": {
-    "run": 171,
-    "passed": 170,
+    "run": 195,
+    "passed": 194,
     "skipped": 1,
     "unexpected_skips": 0,
-    "receipt_sha256": "3c5cebacb559cfe7149744b7a4f4be24cea7a609846585f3c335d251df201956",
+    "receipt_sha256": "50c4077ddf7c08d8e7e59cd4faed86c8d61c1a9c55fa6deedb7f5bf5dedefe54",
     "skip_reason": "native cohort binary fixture is not distributed"
   },
   "development_tool_tests": {
-    "passed": 25,
-    "log_sha256": "f40c8178cec3758c050c89d72924e443c5a62a936ee52414f5926ecb968d099f"
+    "run": 26,
+    "passed": 26,
+    "errors": 0,
+    "failures": 0,
+    "validated_in_this_publication": true
   },
   "sanitization_adjacent_tests": {
-    "passed": 34,
-    "log_sha256": "ffa0c85ae98cfaf06089e2d80db4fb9fb6b46197e64ef411f77c5dd739d649a0"
+    "historical_count": 34,
+    "historical_public_commit": "e5fa8b16fb431e346264ce900f3da02b9430c6dd",
+    "rerun_for_this_publication": false,
+    "reason": "Previously reviewed fixture sanitization retained; current changed source tested by the195case inventory and syntax/static review"
   },
   "private_identity_and_credential_pattern_review": {
     "passed": true,
@@ -29,14 +34,18 @@
   "third_party_license_texts_preserved": true,
   "license_generator_metadata_redacted": true,
   "additional_pinned_IJG_notice_sha256": "db16a04128171879c60708d171b88d97345a2dd20f9bfc173680a4497c73f704",
-  "native_source_changes": "generic fixture data, comments and diagnostic labels only; not rebuilt in this publication check",
+  "native_source_changes": "Upstream108 functional changes plus previously reviewed generic comments/fixture labels; not rebuilt for this public snapshot",
   "full_management_package_built_from_public_snapshot": false,
   "private_historical_release_artifacts_distributed": false,
   "local_center_started": false,
   "Agent_installed": false,
   "Defender_or_OS_protection_changed": false,
-  "SVN_source_changed": false,
+  "SVN_source_changed": true,
   "field_changed": false,
   "signed": false,
-  "deployable": false
+  "deployable": false,
+  "previous_public_commit": "e5fa8b16fb431e346264ce900f3da02b9430c6dd",
+  "public_bytes_equal_internal_release": false,
+  "upstream_owner_reported_functional_acceptance": true,
+  "upstream_baseline_tag_revision": 1774
 }

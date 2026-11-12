@@ -67,7 +67,7 @@ int run(int argc,wchar_t** argv){
         for(unsigned i=0;i<le(config.payload,4,4);++i)options.peer_ipv4.push_back(ipv4(config.payload,48+i*4));
         auto created=std::make_unique<MediaPeer>(std::move(options),[](auto,bool){},[](auto){return false;});
         {std::lock_guard<std::mutex> lock(peer_mutex);media=std::move(created);if(failed)media->request_stop();}
-        std::vector<std::uint8_t> initial_stats(16);put(initial_stats,0,1,4);write(ipc::MediaKind::stats,std::move(initial_stats));
+        write(ipc::MediaKind::stats,ipc::media_stats_payload());
         while(!failed && !media->ended()){
             unsigned count=0;
             while(channel->available() && count++<8){auto message=channel->read_media(100);require(message.session==id && message.transport==spec.transport && message.sequence>incoming);incoming=message.sequence;
@@ -89,10 +89,13 @@ int run(int argc,wchar_t** argv){
                     captured=std::max(captured,ticket.sequence);
                     stale|=ticket.sequence && stats_tick>=ticket.tick && stats_tick-ticket.tick>1000;
                 }}catch(const FrameRetry&){} // Normal producer invalidation; next bounded sample.
-                std::vector<std::uint8_t> body(16);put(body,0,1,4);
-                put(body,4,(stats.peer_connected?1u:0u)|(stats.channel_open?2u:0u)|(stats.codec_failures?4u:0u)|(stale?8u:0u),4);
-                put(body,8,std::min<std::uint64_t>(captured,UINT32_MAX),4);put(body,12,std::min<std::uint64_t>(stats.encoded,UINT32_MAX),4);
-                write(ipc::MediaKind::stats,std::move(body));
+                std::array<std::uint32_t,22> values{(stats.peer_connected?1u:0u)|(stats.channel_open?2u:0u)|(stats.codec_failures?4u:0u)|(stale?8u:0u),
+                    static_cast<std::uint32_t>(std::min<std::uint64_t>(captured,UINT32_MAX)),static_cast<std::uint32_t>(std::min<std::uint64_t>(stats.encoded,UINT32_MAX)),
+                    stats.codec_rebuilds,stats.hardware_frames,stats.hardware_fallbacks,stats.hardware_candidates,stats.bitrate_updates,stats.bitrate_failures,stats.target_bitrate,
+                    static_cast<std::uint32_t>(std::min<std::uint64_t>(stats.unknown_timestamps,UINT32_MAX))};
+                std::copy(stats.encode_latency.begin(),stats.encode_latency.end(),values.begin()+11);
+                values[21]=static_cast<std::uint32_t>(std::min<std::uint64_t>(stats.codec_failures,UINT32_MAX));
+                write(ipc::MediaKind::stats,ipc::media_stats_payload(values));
             }
             try {if(media->connected()){
               const std::array<FrameTicket,2> snapshots{peek_shared_frame(mapping.at(0).value,capacity,id),peek_shared_frame(mapping.at(1).value,capacity,id)};

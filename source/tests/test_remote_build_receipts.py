@@ -18,6 +18,7 @@ def completed():
         'sources': {},
         'artifacts': {},
         'stages': [
+            {'stage': 'remote_mf_codec_probe', 'arguments': ['--dynamic-rates'], 'exit': 0},
             {'stage': 'remote_media_peer_probe', 'arguments': ['--owned-preconnect-focus'], 'exit': 0},
             {'stage': 'remote_media_peer_probe', 'arguments': ['--owned-window-modal'], 'exit': 0},
             {'stage': 'gn', 'exit': 0},
@@ -39,10 +40,10 @@ class RemoteBuildReceiptTest(unittest.TestCase):
 
     def test_preconnect_gate_refuses_missing_failed_or_unexecuted_runtime(self):
         assembly.require_preconnect_regression(completed())
-        missing_modal=completed();missing_modal['stages'].pop(1)
+        missing_modal=completed();missing_modal['stages'].pop(2)
         with self.assertRaisesRegex(ValueError,'modal-window'):assembly.require_preconnect_regression(missing_modal)
         for change in ('missing','failed','timeout','duplicate','compile_only'):
-            body=completed();case=body['stages'][0]
+            body=completed();case=body['stages'][1]
             if change=='missing':body['stages'].remove(case)
             elif change=='failed':case['exit']=1
             elif change=='timeout':case['timeout']=True
@@ -68,6 +69,30 @@ class RemoteBuildReceiptTest(unittest.TestCase):
         before=copy.deepcopy(body)
         assembly.require_input_backlog_regression(body)
         self.assertEqual(body,before)
+
+    def test_dynamic_rates_gate_requires_exact_executed_passing_case(self):
+        assembly.require_dynamic_rates_regression(completed())
+        for change in ('missing','failed','timeout','duplicate','compile_only','incomplete','other_failure','wrong_arguments','malformed'):
+            body=completed();case=body['stages'][0]
+            if change=='missing':body['stages'].remove(case)
+            elif change=='failed':case['exit']=1
+            elif change=='timeout':case['timeout']=True
+            elif change=='duplicate':body['stages'].append(copy.deepcopy(case))
+            elif change=='compile_only':body['runtime_tests_requested']=False
+            elif change=='incomplete':case.pop('exit')
+            elif change=='other_failure':body['stages'][-1]['exit']=1
+            elif change=='wrong_arguments':case['arguments']=[]
+            else:body['stages']=[None]
+            with self.subTest(change=change),self.assertRaisesRegex(ValueError,'dynamic rates regression'):
+                assembly.require_dynamic_rates_regression(body)
+
+    def test_media_receipt_rejects_old_success_without_dynamic_rates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'runtime').mkdir()
+            body=completed();body['stages'].pop(0)
+            (root/'runtime/webrtc-owned-build-001.json').write_text(json.dumps(body),encoding='utf-8')
+            with patch.object(assembly,'WORKSPACE',root),self.assertRaisesRegex(ValueError,'dynamic rates regression'):
+                assembly.receipt('webrtc-owned-build-*.json',True)
 
     def test_pre_fix_success_receipt_without_backlog_is_rejected(self):
         body=completed()
@@ -142,6 +167,33 @@ class RemoteBuildReceiptTest(unittest.TestCase):
                 actual,report=assembly.receipt('remote-m2-native-build-*.json')
             self.assertEqual(actual,path)
             self.assertEqual(report,body)
+
+    def test_media_artifacts_follow_explicit_receipt_instead_of_newer_glob(self):
+        from tools import remote_build_paths as paths
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ):
+            root=Path(folder);runtime=root/'runtime';runtime.mkdir()
+            first=runtime/'webrtc-owned-build-001.json';newer=runtime/'webrtc-owned-build-999.json'
+            for receipt,label in ((first,'first'),(newer,'newer')):
+                (runtime/label).mkdir()
+                receipt.write_text(json.dumps({'artifact_root':'runtime/'+label}),encoding='utf-8')
+            os.environ.pop('GUARDDESK_MEDIA_ARTIFACT_ROOT',None)
+            os.environ['GUARDDESK_MEDIA_RECEIPT']=str(first)
+            with patch.object(paths,'WORKSPACE',root):
+                self.assertEqual(paths.artifact_root('WebRTC'),runtime/'first')
+                os.environ.pop('GUARDDESK_MEDIA_RECEIPT')
+                self.assertEqual(paths.artifact_root('WebRTC'),runtime/'newer')
+
+    def test_external_source_does_not_allow_external_or_escaping_artifacts(self):
+        from tools import remote_build_paths as paths
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ):
+            root=Path(folder);runtime=root/'runtime';runtime.mkdir();(root/'outside').mkdir()
+            receipt=runtime/'webrtc-owned-build-001.json'
+            os.environ.pop('GUARDDESK_MEDIA_ARTIFACT_ROOT',None)
+            os.environ['GUARDDESK_MEDIA_RECEIPT']=str(receipt)
+            for target in ('runtime','runtime/../outside',str(root/'outside')):
+                receipt.write_text(json.dumps({'artifact_root':target}),encoding='utf-8')
+                with self.subTest(target=target),patch.object(paths,'WORKSPACE',root),self.assertRaises(ValueError):
+                    paths.artifact_root('WebRTC')
 
 
 if __name__=='__main__':

@@ -135,6 +135,7 @@ class RemoteViewer:
         self.fullscreen_button=ttk.Button(actions,text='全螢幕／還原',command=self.toggle_fullscreen);self.fullscreen_button.pack(side='right')
         self.native_actions=ttk.Frame(self.body)
         self.native_window_button=ttk.Button(self.native_actions,text='操作遠端視窗',command=self.activate_native_window,state='disabled');self.native_window_button.pack(side='left')
+        ttk.Button(self.native_actions,text='輸入診斷',command=self.show_native_diagnostics).pack(side='right')
         ttk.Label(self.native_actions,text='鍵盤與滑鼠請在獨立影像視窗內操作；也可使用右上方「放大操作視窗／還原」。',wraplength=600).pack(side='left',padx=12)
         self.display_box=ttk.Combobox(actions,textvariable=self.display,state='readonly',values=['符合視窗','100% 原始大小'],width=16)
         self.display_box.pack(side='right',padx=10);self.display_box.bind('<<ComboboxSelected>>',self.display_changed)
@@ -248,6 +249,27 @@ class RemoteViewer:
             self.quality_box.configure(state='disabled')
             self.stop_button.configure(state='normal');self.canvas.itemconfigure(self.message_item,text='等待端點使用者同意…')
         self.background(work,done)
+
+    def show_native_diagnostics(self):
+        import json
+        engine=self.engine
+        if not engine or not getattr(engine,'native_media',False):return
+        existing=getattr(self,'diagnostic_window',None)
+        if existing is not None and existing.winfo_exists():
+            self.diagnostic_refresh();existing.deiconify();existing.lift();return
+        window=self.tk.Toplevel(self.root);window.title('本機輸入診斷');window.geometry('680x600')
+        self.diagnostic_window=window
+        self.ttk.Label(window,text='手動快照，請按「更新數據」取得最新計數。queued 是排入；transmitted 只代表交給通道，不代表端點已執行。',padding=12,wraplength=640).pack(fill='x')
+        text=self.tk.Text(window,wrap='none');text.pack(fill='both',expand=True,padx=12)
+        def refresh():
+            current_engine=self.engine
+            current=current_engine.diagnostics_snapshot() if current_engine and getattr(current_engine,'native_media',False) else None
+            text.configure(state='normal');text.delete('1.0','end')
+            text.insert('1.0',json.dumps(current,ensure_ascii=False,indent=2) if current is not None else '尚無診斷數據，或本次協助已結束。')
+            text.configure(state='disabled')
+        self.ttk.Button(window,text='更新數據',command=refresh).pack(pady=12)
+        self.diagnostic_refresh=refresh
+        refresh() # Nonmodal: no grab, wait_window, message box or authority changes.
 
     def clear_frame(self,message='協助已結束'):
         if self.image:self.image.close();self.image=None

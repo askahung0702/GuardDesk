@@ -2,6 +2,7 @@
 #include <atomic>
 #include <memory>
 #include <functional>
+#include "latency.hpp"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "api/video_codecs/video_decoder_factory.h"
 
@@ -13,6 +14,8 @@ struct CodecMetrics {
   std::atomic<std::uint32_t> first_encoded_timestamp{0},first_received_timestamp{0};
   std::atomic<unsigned> received_packets{0},unknown_frame_timestamps{0};
   std::atomic<unsigned> hardware_candidates{0},hardware_frames{0},hardware_fallbacks{0};
+  std::atomic<unsigned> codec_rebuilds{0},bitrate_updates{0},bitrate_failures{0},target_bitrate{0};
+  AtomicLatencyHistogram encode_us;
   // Fixed before factory creation, never changed while codecs are running.
   // Unknown/old RTP timestamps are dropped; epochs force an actual new IDR.
   std::function<std::uint64_t(std::uint32_t)> epoch_for_frame;

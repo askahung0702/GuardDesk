@@ -28,6 +28,7 @@ class H264Encoder {
     unsigned width_,height_,fps_;
     unsigned bitrate_;
     std::uint64_t frame_=0;
+    std::int64_t origin_us_=0,last_sample_time_=-1,capture_us_=0;
     EncoderSelection selection_;
     bool asynchronous_=false,need_input_=false,have_output_=false;
     Microsoft::WRL::ComPtr<IMFMediaEventGenerator> events_;
@@ -42,7 +43,8 @@ class H264Encoder {
 public:
     H264Encoder(unsigned width,unsigned height,unsigned fps,unsigned bitrate,EncoderPreference preference=EncoderPreference::software_only);
     ~H264Encoder();
-    std::vector<std::uint8_t> encode(const std::vector<std::uint8_t>& nv12,bool keyframe=false);
+    std::vector<std::uint8_t> encode(const std::vector<std::uint8_t>& nv12,bool keyframe=false,std::int64_t capture_us=0);
+    bool set_bitrate(unsigned bitrate); // Owner MTA only; false requests bounded caller fallback.
     std::vector<std::uint8_t> drain();
     EncoderSelection selection() const{return selection_;}
 };

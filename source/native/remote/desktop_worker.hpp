@@ -28,7 +28,7 @@ public:
     DesktopWorker(LogonBinding logon,ipc::Session session,std::uint64_t transport,std::uint64_t consent_deadline,std::unique_ptr<FramePool> frames);
     ~DesktopWorker();
     bool command(const ipc::Message& message);
-    void queue_observation(std::uint32_t coalesced,std::uint32_t high_water,std::uint64_t age,bool stale_input);
+    void queue_observation(std::uint32_t coalesced,std::uint32_t high_water,std::uint64_t age,bool stale_input,unsigned down_type=0,bool stale_presented=false);
     std::optional<FrameTicket> poll();
     void close();
     bool ended() const{return runtime_.ended();}

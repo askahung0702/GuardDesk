@@ -162,6 +162,7 @@ public:
     std::mutex send_metrics_mutex;
     LatencyHistogram send_queue_wait;
     std::uint32_t send_queued=0,send_transmitted=0,send_discarded=0,send_busy=0,send_high_water=0;
+    InputDiagnostics input_metrics;
     std::uint64_t wire_ack_generation=0,wire_ack_sequence=0; // signaling owner only
     std::set<unsigned> wire_held; // conservative sent-down ledger, no key logging
     std::optional<FrameTicket> ack;
@@ -215,8 +216,10 @@ public:
             track=factory->CreateVideoTrack(source,"guarddesk-consented-screen");
             auto sender=peer->AddTrack(track,{"guarddesk-remote"});require(sender.ok());
             auto parameters=sender.value()->GetParameters();
-            for(auto& encoding:parameters.encodings)encoding.max_framerate=30;
+            for(auto& encoding:parameters.encodings){encoding.max_framerate=30;encoding.min_bitrate_bps=64000;encoding.max_bitrate_bps=8000000;}
             require(sender.value()->SetParameters(parameters).ok());
+            webrtc::BitrateSettings rates;rates.min_bitrate_bps=64000;rates.start_bitrate_bps=3000000;rates.max_bitrate_bps=8000000;
+            require(peer->SetBitrate(rates).ok());
         }
         } catch(...) {close();throw;}
     }
@@ -297,6 +300,10 @@ public:
         }catch(...){++cursor_dropped;}
     }
     enum class SendResult {queued,not_ready,backpressure,closed,rejected};
+    void discarded(const ipc::Message& message,InputFailure reason){
+        std::lock_guard<std::mutex> lock(send_metrics_mutex);LatencyHistogram::add(send_discarded);
+        if(message.header.kind==ipc::Kind::input)input_metrics.rejected(input_category(message.payload),reason,true);
+    }
     void schedule_outbound(){
         if(terminal || !signaling_started || outbound_scheduled.exchange(true))return;
         signaling->PostTask([this]{
@@ -326,6 +333,7 @@ public:
                         // A possibly held remote key/button needs safe cleanup;
                         // if it cannot be sent in this bound, fail closed.
                         if(!wire_held.empty())fail(MediaEndReason::cleanup_timeout);
+                        for(const auto& value:outbound)discarded(value.message,InputFailure::expired);
                         outbound.clear();wire_ack_generation=wire_ack_sequence=0;
                         std::lock_guard<std::mutex> input_lock(mutex);ack.reset();
                     }
@@ -334,27 +342,27 @@ public:
                 entry=std::move(outbound.front());outbound.pop_front();}
             auto& message=entry.message;const auto now=GetTickCount64();
             {std::lock_guard<std::mutex> lock(send_metrics_mutex);send_queue_wait.record(monotonic_us()-entry.started_us);}
-            auto discarded=[&]{std::lock_guard<std::mutex> lock(send_metrics_mutex);LatencyHistogram::add(send_discarded);};
             const bool stale=now<entry.tick || now-entry.tick>100;
-            if(stale && message.header.kind==ipc::Kind::presented){discarded();continue;}
+            if(stale && message.header.kind==ipc::Kind::presented){discarded(message,InputFailure::expired);continue;}
             if(stale && message.header.kind==ipc::Kind::input){
-                discarded();
+                discarded(message,InputFailure::expired);
                 message.header.kind=ipc::Kind::release_all;message.header.payload_bytes=0;
                 message.header.desktop_generation=0;message.header.frame_sequence=0;message.payload.clear();
                 std::lock_guard<std::mutex> lock(mutex);ack.reset();
             }
             if(message.header.kind==ipc::Kind::input || message.header.kind==ipc::Kind::presented){
                 std::lock_guard<std::mutex> lock(mutex);
-                if(message.header.desktop_generation!=generation || generation<=paused_epoch){discarded();continue;}
+                if(message.header.desktop_generation!=generation || generation<=paused_epoch){discarded(message,InputFailure::ack_changed);continue;}
                 // An ACK merely queued by the UI is not a wire ACK. If it was
                 // dropped/cleaned, dependent input must not cross that barrier.
                 if(message.header.kind==ipc::Kind::input &&
-                    (wire_ack_generation!=message.header.desktop_generation || wire_ack_sequence!=message.header.frame_sequence)){discarded();continue;}
+                    (wire_ack_generation!=message.header.desktop_generation || wire_ack_sequence!=message.header.frame_sequence)){discarded(message,InputFailure::ack_changed);continue;}
             }
             const auto packet=ipc::encode_control(message,options.endpoint?ipc::Direction::worker_to_broker:ipc::Direction::broker_to_worker);
             if(!authorized())return false;
             if(!channel->Send(webrtc::DataBuffer(webrtc::CopyOnWriteBuffer(std::span<const std::uint8_t>(packet)),true))){fail(MediaEndReason::send_failed);pause();return false;}
-            {std::lock_guard<std::mutex> lock(send_metrics_mutex);LatencyHistogram::add(send_transmitted);}
+            {std::lock_guard<std::mutex> lock(send_metrics_mutex);LatencyHistogram::add(send_transmitted);
+                if(message.header.kind==ipc::Kind::input)input_metrics.count(input_category(message.payload),2);}
             if(message.header.kind==ipc::Kind::presented){wire_ack_generation=message.header.desktop_generation;wire_ack_sequence=message.header.frame_sequence;}
             else if(message.header.kind==ipc::Kind::input && (message.payload[0]==1 || message.payload[0]==2) && message.payload[1])
                 wire_held.insert((unsigned(message.payload[0])<<16)|unsigned(message.payload[2])|(unsigned(message.payload[3])<<8));
@@ -373,7 +381,8 @@ public:
         if(!open || !pc_connected)return SendResult::not_ready;
         ipc::encode_control(message,options.endpoint?ipc::Direction::worker_to_broker:ipc::Direction::broker_to_worker);
         {std::lock_guard<std::mutex> lock(outbound_mutex);
-            if(message.header.kind==ipc::Kind::release_all && message.payload.empty())outbound.clear();
+            if(message.header.kind==ipc::Kind::release_all && message.payload.empty()){
+                for(const auto& value:outbound)discarded(value.message,InputFailure::cleanup);outbound.clear();}
             else if(outbound.size()>=32){std::lock_guard<std::mutex> metrics_guard(send_metrics_mutex);LatencyHistogram::add(send_busy);return SendResult::backpressure;}
             outbound.push_back({message,GetTickCount64(),monotonic_us()});
             std::lock_guard<std::mutex> metrics_guard(send_metrics_mutex);LatencyHistogram::add(send_queued);send_high_water=std::max(send_high_water,static_cast<std::uint32_t>(outbound.size()));}
@@ -439,6 +448,13 @@ bool MediaPeer::relay(const std::vector<std::uint8_t>& bytes){try{auto& p=*impl_
     configuration.servers={server};configuration.type=webrtc::PeerConnectionInterface::kRelay;
     p.network_guard->relay(relay);
     require(p.peer->SetConfiguration(configuration).ok());p.relay_deadline=relay.expires;
+    if(p.options.endpoint){
+        for(const auto& sender:p.peer->GetSenders()){auto parameters=sender->GetParameters();
+            for(auto& encoding:parameters.encodings){encoding.min_bitrate_bps=64000;encoding.max_bitrate_bps=4000000;}
+            require(sender->SetParameters(parameters).ok());}
+        webrtc::BitrateSettings rates;rates.min_bitrate_bps=64000;rates.start_bitrate_bps=1500000;rates.max_bitrate_bps=4000000;
+        require(p.peer->SetBitrate(rates).ok());
+    }
     std::fill(relay.password.begin(),relay.password.end(),'\0');relay.password.clear();relay.username.clear();p.relay_policy=std::move(relay);return true;
 }catch(...){request_stop();return false;}}
 bool MediaPeer::make_offer(){try{auto& p=*impl_;p.own();require(p.live() && !p.options.endpoint && !p.offered);p.offered=true;
@@ -478,12 +494,19 @@ bool MediaPeer::presented(const FrameTicket& frame){auto& p=*impl_;p.own();if(p.
     }
     ipc::Message message{{ipc::Kind::presented,0,p.options.session,frame.generation,++p.local_sequence,frame.sequence,p.options.transport},{}};
     if(!p.send(message))return false;std::lock_guard<std::mutex> lock(p.mutex);p.ack=frame;p.ack_tick=GetTickCount64();return true;}
-bool MediaPeer::input(const std::vector<std::uint8_t>& payload){auto& p=*impl_;p.own();if(p.options.endpoint || !p.options.can_control || !p.authorized() || payload.size()!=24)return false;
-    std::optional<FrameTicket> ack;{std::lock_guard<std::mutex> lock(p.mutex);if(GetTickCount64()-p.ack_tick>1000)return false;ack=p.ack;}
-    if(!ack)return false;
+bool MediaPeer::input(const std::vector<std::uint8_t>& payload){auto& p=*impl_;p.own();const auto category=input_category(payload);
+    {std::lock_guard<std::mutex> lock(p.send_metrics_mutex);p.input_metrics.count(category,0);}
+    auto reject=[&](InputFailure reason){std::lock_guard<std::mutex> lock(p.send_metrics_mutex);p.input_metrics.rejected(category,reason);return false;};
+    if(payload.size()!=24)return reject(InputFailure::invalid);
+    if(p.options.endpoint || !p.options.can_control)return reject(InputFailure::view_only);
+    if(p.terminal)return reject(InputFailure::closed);
+    if(!p.authorized())return reject(InputFailure::authority);
+    std::optional<FrameTicket> ack;{std::lock_guard<std::mutex> lock(p.mutex);const auto now=GetTickCount64();if(now>=p.ack_tick && now-p.ack_tick<=1000)ack=p.ack;}
+    if(!ack)return reject(InputFailure::no_frame);
     const auto result=p.enqueue({{ipc::Kind::input,24,p.options.session,ack->generation,++p.local_sequence,ack->sequence,p.options.transport},payload});
     if(result==Impl::SendResult::backpressure)release_all(); // bounded cleanup barrier, never replay input
-    return result==Impl::SendResult::queued;}
+    if(result==Impl::SendResult::queued){std::lock_guard<std::mutex> lock(p.send_metrics_mutex);p.input_metrics.count(category,1);return true;}
+    return reject(result==Impl::SendResult::backpressure?InputFailure::backpressure:result==Impl::SendResult::not_ready?InputFailure::not_ready:result==Impl::SendResult::closed?InputFailure::closed:InputFailure::authority);}
 void MediaPeer::release_all(){auto& p=*impl_;p.own();if(!p.options.endpoint)p.send({{ipc::Kind::release_all,0,p.options.session,0,++p.local_sequence,0,p.options.transport},{}});
     std::lock_guard<std::mutex> lock(p.mutex);p.ack.reset();}
 bool MediaPeer::release_up(unsigned type,unsigned code){
@@ -532,5 +555,9 @@ MediaEndReason MediaPeer::end_reason() const{return static_cast<MediaEndReason>(
 std::array<std::uint32_t,20> MediaPeer::send_diagnostics()const{auto& p=*impl_;std::lock_guard<std::mutex> lock(p.send_metrics_mutex);
     std::array<std::uint32_t,20> v{};v[0]=1;v[1]=p.send_queued;v[2]=p.send_transmitted;v[3]=p.send_discarded;v[4]=p.send_busy;v[5]=p.send_high_water;
     v[6]=p.send_queue_wait.count;v[7]=p.send_queue_wait.max_us;std::copy(p.send_queue_wait.bins.begin(),p.send_queue_wait.bins.end(),v.begin()+8);return v;}
-MediaPeerStats MediaPeer::stats() const{auto& p=*impl_;return {p.metrics->encoded.load(),p.metrics->decoded.load(),p.metrics->failures.load(),p.metrics->unknown_frame_timestamps.load(),p.open.load(),p.pc_connected.load(),p.cursor_sent.load(),p.cursor_received.load(),p.cursor_dropped.load(),p.cursor_unsupported.load()};}
+std::array<std::uint32_t,64> MediaPeer::input_diagnostics()const{auto& p=*impl_;std::lock_guard<std::mutex> lock(p.send_metrics_mutex);return p.input_metrics.values;}
+MediaPeerStats MediaPeer::stats() const{auto& p=*impl_;MediaPeerStats result{p.metrics->encoded.load(),p.metrics->decoded.load(),p.metrics->failures.load(),p.metrics->unknown_frame_timestamps.load(),p.open.load(),p.pc_connected.load(),p.cursor_sent.load(),p.cursor_received.load(),p.cursor_dropped.load(),p.cursor_unsupported.load()};
+    result.codec_rebuilds=p.metrics->codec_rebuilds.load();result.hardware_frames=p.metrics->hardware_frames.load();result.hardware_fallbacks=p.metrics->hardware_fallbacks.load();
+    result.hardware_candidates=p.metrics->hardware_candidates.load();result.bitrate_updates=p.metrics->bitrate_updates.load();result.bitrate_failures=p.metrics->bitrate_failures.load();
+    result.target_bitrate=p.metrics->target_bitrate.load();result.encode_latency=p.metrics->encode_us.snapshot();return result;}
 }

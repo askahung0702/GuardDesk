@@ -1,15 +1,18 @@
 {
   "format": 1,
   "designation": "upstream_internal_reference_not_public_binary_release",
-  "version": "0.4.105",
+  "version": "0.4.108",
   "revision": "001",
   "artifact": {
-    "path": "dist/GuardDesk-Management-0.4.105-internal-001.zip",
-    "sha256": "d01b86d4316fe5e2b9b13d00f3789e8e53ba0685608ccfede2e106269d9d4072",
+    "path": "dist/GuardDesk-Management-0.4.108-internal-001.zip",
+    "sha256": "5577eb20b6e8cb322ff9a0456ab680252e633c71dce94fa23182127a92d247df",
     "distributed_in_repository": false
   },
   "public_source_is_sanitized": true,
   "public_bytes_equal_internal_release": false,
   "formal_release_qualification_asserted": false,
-  "automatic_baseline_promotion": false
+  "automatic_baseline_promotion": false,
+  "confirmed_on": "2026-11-12",
+  "confirmation": "upstream_owner_reported_current_functional_tests_good_and_requested_baseline",
+  "upstream_source_revision": 1773
 }

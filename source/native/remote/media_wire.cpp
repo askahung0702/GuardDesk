@@ -29,7 +29,7 @@ void body(const MediaMessage& m,MediaDirection d){
             (v.header.kind==Kind::input || v.header.kind==Kind::presented || v.header.kind==Kind::release_all || v.header.kind==Kind::stop));break;}
     case MediaKind::consumed:require(!parent(d) && p.size()==24 && get(p,0,8)>0 && get(p,8,8)>0 && get(p,16,4)<2);zero(p,20,24);break;
     case MediaKind::stop:require(parent(d) && p.empty());break;
-    case MediaKind::stats:require(!parent(d) && p.size()==16);break;
+    case MediaKind::stats:require(!parent(d) && p.size()==media_stats_bytes && get(p,0,4)==media_stats_version && (get(p,4,4)&~15u)==0 && get(p,40,4)<=20000000);zero(p,92,media_stats_bytes);break;
     case MediaKind::configuration:
         require(parent(d) && p.size()==80 && get(p,0,4)>=1 && get(p,0,4)<=8 && get(p,4,4)>=1 && get(p,4,4)<=8 && get(p,8,4)<=1);
         zero(p,12,16);zero(p,16+static_cast<std::size_t>(get(p,0,4))*4,48);zero(p,48+static_cast<std::size_t>(get(p,4,4))*4,80);break;
@@ -37,6 +37,11 @@ void body(const MediaMessage& m,MediaDirection d){
     default:require(false);
     }
 }
+}
+std::vector<std::uint8_t> media_stats_payload(const std::array<std::uint32_t,22>& counters){
+    std::vector<std::uint8_t> payload(media_stats_bytes);put(payload,0,media_stats_version,4);
+    for(std::size_t i=0;i<counters.size();++i)put(payload,4+i*4,counters.at(i),4);
+    return payload;
 }
 MediaHeader media_header(const std::array<std::uint8_t,64>& bytes,MediaDirection d){
     const std::vector<std::uint8_t> b(bytes.begin(),bytes.end());
@@ -53,7 +58,7 @@ MediaHeader media_header(const std::array<std::uint8_t,64>& bytes,MediaDirection
     case MediaKind::network_control:allowed=!parent(d) && (n==64 || n==72 || n==88);break;
     case MediaKind::consumed:allowed=!parent(d) && n==24;break;
     case MediaKind::stop:allowed=parent(d) && n==0;break;
-    case MediaKind::stats:allowed=!parent(d) && n==16;break;
+    case MediaKind::stats:allowed=!parent(d) && n==media_stats_bytes;break;
     case MediaKind::configuration:allowed=parent(d) && n==80;break;
     case MediaKind::relay_configuration:allowed=parent(d) && n>=128 && n<=1152;break;
     default:break;

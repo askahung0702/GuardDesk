@@ -8,10 +8,11 @@ import hashlib
 import json
 import shutil
 import subprocess
+import os
 
 SOURCE=Path(__file__).resolve().parents[1]
 WORKSPACE=SOURCE.parents[1]
-VENDOR=WORKSPACE/'runtime/w/src'
+VENDOR=Path(os.environ.get('GUARDDESK_WEBRTC_SOURCE',str(WORKSPACE/'runtime/w/src'))).resolve()
 REVISION='3178a2873c9226a20f678ac902ed979272be0cff'
 
 
@@ -24,7 +25,7 @@ def stage():
     owned=VENDOR/'guarddesk_remote'
     if owned.is_symlink() or not owned.resolve().is_relative_to(VENDOR.resolve()):raise RuntimeError('Owned staging path changed')
     owned.mkdir(exist_ok=True);hashes={}
-    native_names=('latency.hpp','pointer_flow.hpp','session.cpp','session.hpp','input.cpp','input.hpp','video_geometry.hpp','relay_policy.cpp','relay_policy.hpp','cursor.cpp','cursor.hpp','codec.cpp','codec.hpp','ipc_wire.cpp','ipc_wire.hpp','frame_pool.cpp','frame_pool.hpp','frame_binding.cpp','frame_binding.hpp','h264_frame_binding.cpp','h264_frame_binding.hpp','ipc_peer.cpp','ipc_peer.hpp','capture.hpp','cohort.cpp','cohort.hpp','launch_capsule.cpp','launch_capsule.hpp','broker_api.hpp','media_wire.cpp','media_wire.hpp','ipc_channel.cpp','ipc_channel.hpp','viewer.cpp','viewer.hpp','render.cpp','render.hpp')
+    native_names=('input_diagnostics.hpp','latency.hpp','pointer_flow.hpp','session.cpp','session.hpp','input.cpp','input.hpp','video_geometry.hpp','relay_policy.cpp','relay_policy.hpp','cursor.cpp','cursor.hpp','codec.cpp','codec.hpp','ipc_wire.cpp','ipc_wire.hpp','frame_pool.cpp','frame_pool.hpp','frame_binding.cpp','frame_binding.hpp','h264_frame_binding.cpp','h264_frame_binding.hpp','ipc_peer.cpp','ipc_peer.hpp','capture.hpp','cohort.cpp','cohort.hpp','launch_capsule.cpp','launch_capsule.hpp','broker_api.hpp','media_wire.cpp','media_wire.hpp','ipc_channel.cpp','ipc_channel.hpp','viewer.cpp','viewer.hpp','render.cpp','render.hpp')
     for name in ('BUILD.gn','owned_handoff_probe.cc','transport_probe.cc','owned_video_probe.hpp','owned_control_probe.hpp','mf_codec_adapter.cc','mf_codec_adapter.hpp','mf_codec_probe.cc','mf_hardware_probe.cc','frame_bridge.cc','frame_bridge.hpp','media_peer.cc','media_peer.hpp','mis_native.cc','mis_native.hpp','media_peer_probe.cc','media_entry.cc','media_entry_token.hpp','media_token_probe.cc','relay_probe.cc','network_guard.cc','network_guard.hpp',*native_names):
         source=SOURCE/'native/remote'/('' if name in native_names else 'webrtc')/name
         checksum=hashlib.sha256(source.read_bytes()).hexdigest();destination=owned/name

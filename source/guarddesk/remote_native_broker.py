@@ -270,12 +270,15 @@ class NativeJob:
             if not 8<len(payload)<=65536 or payload[:8]!=b'\2'+b'\0'*7:raise ValueError('Endpoint accepts native answer output only')
             self.signals.put_nowait({'type':'answer','sdp':payload[8:].decode('ascii')})
         elif kind==6:
-            if count!=16:raise ValueError('Native media status size')
-            version,flags,captured,encoded=struct.unpack('<IIII',packet[64:])
-            if version!=1 or flags&~15:raise ValueError('Native media status schema')
+            if count!=96:raise ValueError('Native media status size')
+            values=struct.unpack('<24I',packet[64:]);version,flags,captured,encoded=values[:4]
+            if version!=2 or flags&~15 or values[10]>20000000 or values[23]:raise ValueError('Native media status schema')
             status={'peer_connected':bool(flags&1),'channel_open':bool(flags&2),
                 'codec_failed':bool(flags&4),'stale_slot':bool(flags&8),
                 'capture_sequence':captured,'encoded_frames':encoded}
+            status.update(zip(('codec_rebuilds','hardware_frames','hardware_fallbacks','hardware_candidates','bitrate_updates','bitrate_failures','target_bitrate_bps','unknown_frame_timestamps'),values[4:12]))
+            status['encode_mft_us']={'count':values[12],'max':values[13],'bins':list(values[14:22])}
+            status['codec_failures']=values[22]
             with self.lock:self.media_status=status;self.media_status_tick=self.library.tick()
         elif kind not in (3,4):raise ValueError('Native media direction')
         # Input and consumed are already validated/forwarded inside the native
@@ -288,7 +291,7 @@ class NativeJob:
         if len(packet)!=384:raise ValueError('Native worker status length')
         values=struct.unpack('<96I',packet)
         version,stage,api,error,polls,acquired,published,resets=values[:8];control=values[8:16]
-        if version!=3 or stage>13 or (api!=0 and not 100<=api<=112) or control[5]>32 or values[16]>7 or any(values[86:]):raise ValueError('Native worker status schema')
+        if version!=4 or stage>13 or (api!=0 and not 100<=api<=112) or control[5]>32 or values[16]>7 or any(values[93:]):raise ValueError('Native worker status schema')
         status=dict(stage=stage,api=api,error=error,polls=polls,acquired=acquired,published=published,resets=resets)
         status.update(zip(('input_received','input_accepted','input_rejected','input_stale','moves_coalesced',
             'queue_high_water','queue_age_max_ms','command_max_ms'),control))
@@ -297,6 +300,9 @@ class NativeJob:
             for i,name in enumerate(('queue','command','guard','send_input','capture'))}
         status['reset_reasons']=list(values[70:78])
         status['input_reject_reasons']=dict(zip(('other','schema_identity_sequence','authorization','rate','desktop','frame_or_stale','view_only','payload_or_ledger'),values[78:86]))
+        status['stale_presented_dropped']=values[86]
+        status['button_down']=dict(zip(('received','applied','rejected'),values[87:90]))
+        status['key_down']=dict(zip(('received','applied','rejected'),values[90:93]))
         with self.lock:self.worker_status=status;self.worker_status_tick=self.library.tick()
     def worker_snapshot(self):
         with self.lock:

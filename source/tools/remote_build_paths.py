@@ -15,6 +15,14 @@ def artifact_root(kind):
     names={'CMake':('GUARDDESK_NATIVE_ARTIFACT_ROOT','runtime/remote-next-m3-build/Release'),
            'WebRTC':('GUARDDESK_MEDIA_ARTIFACT_ROOT','runtime/w/src/out/GuardDesk')}
     variable,default=names[kind]
+    if kind=='WebRTC' and variable not in os.environ:
+        matches=sorted((WORKSPACE/'runtime').glob('webrtc-owned-build-*.json'))
+        chosen=os.environ.get('GUARDDESK_MEDIA_RECEIPT')
+        if chosen or matches:
+            import json
+            receipt=owned(chosen) if chosen else owned(matches[-1])
+            body=json.loads(receipt.read_text(encoding='utf-8'))
+            if 'artifact_root' in body:return owned(WORKSPACE/body['artifact_root'])
     return owned(os.environ.get(variable,str(WORKSPACE/default)))
 def receipt_path(kind,pattern,workspace=None):
     variable={'CMake':'GUARDDESK_NATIVE_RECEIPT','WebRTC':'GUARDDESK_MEDIA_RECEIPT','Python':'GUARDDESK_SOURCE_RECEIPT'}[kind]

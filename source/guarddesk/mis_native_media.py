@@ -5,6 +5,7 @@ addresses. Two bounded threads own network and Win32 work separately. No SDP
 retries, consent extension, credential forwarding or legacy-image fallback.
 """
 import ctypes
+import copy
 import ipaddress
 import math
 import queue
@@ -96,6 +97,7 @@ class NativeLibrary:
                 'GDMisDiagnostics':[ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32),ctypes.c_uint32],
                 'GDMisEndReason':[ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32)],
                 'GDMisTransportDiagnostics':[ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32),ctypes.c_uint32],
+                'GDMisInputDiagnostics':[ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32),ctypes.c_uint32],
                 'GDMisStop':[ctypes.c_void_p],'GDMisClose':[ctypes.c_void_p]}
             for name,args in definitions.items():
                 method=getattr(self.dll,name);method.argtypes=args;method.restype=ctypes.c_uint32
@@ -158,7 +160,14 @@ class NativeLibrary:
         if values[0]!=1 or values[3]!=0:raise ValueError('MIS diagnostic schema')
         transport=(ctypes.c_uint32*20)();self.check(self.dll.GDMisTransportDiagnostics(handle,transport,len(transport)))
         if transport[0]!=1 or any(transport[16:]) or transport[5]>32:raise ValueError('Native transport diagnostic schema')
+        events=(ctypes.c_uint32*64)();self.check(self.dll.GDMisInputDiagnostics(handle,events,len(events)))
+        if events[0]!=1 or events[1]>10 or events[3]>6 or events[38]>10 or events[40] not in (0,2) or any(events[41:]):raise ValueError('Native input diagnostic schema')
         return {'input_offered':values[1],'input_sent':values[2],
+            'input_events':{name:dict(zip(('offered','queued','transmitted','discarded'),events[4+i*4:8+i*4]))
+                for i,name in enumerate(('key_down','key_up','button_down','button_up','move','wheel'))},
+            'input_failures':dict(zip(('view_only','authority','no_frame','not_ready','backpressure','closed','invalid','expired','ack_changed','cleanup'),events[28:38])),
+            'last_input_failure':{'reason':events[1],'revision':events[2],'category':events[3]},
+            'last_action_failure':{'reason':events[38],'revision':events[39],'category':events[40]},
             'transport':{'queued':transport[1],'transmitted':transport[2],'discarded':transport[3],'backpressure':transport[4],'high_water':transport[5],
                 'queue_us':{'count':transport[6],'max':transport[7],'bins':list(transport[8:16])}},
             'ui_event_us':{'count':values[4],'max':values[5],'bins':list(values[6:14])},
@@ -203,7 +212,7 @@ class NativeMisController:
         self.ui_ready=threading.Event()
         self.ui=None;self.network=None;self.started=False
         self.initial_sequence=initial_sequence
-        self._permit=False;self.diagnostic_status=None;self.transient_retries=0
+        self._permit=False;self.diagnostic_status=None;self.diagnostic_tick=time.monotonic();self.transient_retries=0
 
     def _fail(self,exc):
         # Scalar error only. Never preserve exception message/SDP/auth response.
@@ -264,6 +273,14 @@ class NativeMisController:
             self.library.activate(self.handle,toggle_maximize)
             return True
 
+    def diagnostics_snapshot(self):
+        # Cached scalar observations only; the UI never waits for a DLL/network call.
+        with self.lock:
+            if self.diagnostic_status is None:return None
+            return {**copy.deepcopy(self.diagnostic_status),
+                'sample_age_ms':min(0xffffffff,max(0,int((time.monotonic()-self.diagnostic_tick)*1000))),
+                'session_active':not self.stop_event.is_set()}
+
     def _network(self):
         sequence=self.initial_sequence;ever_granted=False;answer_confirmed=False
         last_deadline=0;consecutive=0
@@ -320,6 +337,7 @@ class NativeMisController:
                     if deadline:last_deadline=deadline
                     if signal is not None:answer_confirmed=True
                     self.diagnostic_status=self.library.diagnostics(self.handle)
+                    self.diagnostic_tick=time.monotonic()
                 self.stop_event.wait(.3)
         except Exception as exc:self._fail(exc)
         finally:
@@ -437,6 +455,9 @@ class NativeViewerEngine:
         with self.lock:controller=self.controller
         return bool(controller and not self.cancel.is_set() and controller.activate_window(toggle_maximize))
     def presented(self,*args):return False  # Only actual native Present can ACK.
+    def diagnostics_snapshot(self):
+        with self.lock:controller=self.controller
+        return controller.diagnostics_snapshot() if controller is not None else None
     def take(self):
         with self.lock:
             latest,error=self.latest,self.error;self.latest=self.error=None

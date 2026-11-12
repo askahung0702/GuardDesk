@@ -38,6 +38,7 @@ struct View {
     std::array<std::uint32_t,32> diagnostic_snapshot{};
     PointerPacer pointer_move{16};CaptureGesture capture_gesture;
     LatencyHistogram input_send,ui_event_age;std::uint32_t input_offered=0,input_sent=0;
+    std::uint32_t failure_serial=0;std::uint64_t hint_until=0;InputFailure hint=InputFailure::none;
     bool send_input(const std::vector<std::uint8_t>& payload){
         LatencyHistogram::add(input_offered);const auto started=monotonic_us();const bool sent=peer->input(payload);
         input_send.record(monotonic_us()-started);if(sent)LatencyHistogram::add(input_sent);return sent;
@@ -141,12 +142,16 @@ struct View {
         // A stale frame/temporarily busy channel is not session revocation.
         // Input remains fenced until a fresh presentation ACK is admitted.
         if(presented){frame_width=presented->width;frame_height=presented->height;peer->presented(*presented);++presented_frames;}
+        const auto input_stats=peer->input_diagnostics();
+        if(input_stats[39]!=failure_serial){failure_serial=input_stats[39];
+            hint=static_cast<InputFailure>(input_stats[38]);hint_until=GetTickCount64()+2500;status_tick=0;}
         if(GetTickCount64()-status_tick>=1000){status_tick=GetTickCount64();const auto stats=peer->stats();
             const auto title=std::wstring(L"GuardDesk 遠端協助 · ")+(stats.peer_connected && stats.channel_open?(stats.decoded?L"影像通道已連線":L"通道已連線，等待端點首張畫面"):L"等待影像通道")+
                 L" · 解碼 "+std::to_wstring(stats.decoded)+L" · 顯示 "+std::to_wstring(presented_frames)+
                 L" · 編解碼錯誤 "+std::to_wstring(stats.codec_failures)+(cursor_warning?L" · 游標形狀不支援":L"");
             const auto detail=viewer->diagnostics();
-            SetWindowTextW(window,(title+L" · 暫停 "+std::to_wstring(detail[0])+L" · 擷取代次 "+std::to_wstring(detail[1])+L" · 顯示忙碌 "+std::to_wstring(detail[4])).c_str());
+            const auto feedback=GetTickCount64()<hint_until?std::wstring(L" · ")+input_failure_text(hint):std::wstring();
+            SetWindowTextW(window,(title+L" · 暫停 "+std::to_wstring(detail[0])+L" · 擷取代次 "+std::to_wstring(detail[1])+L" · 顯示忙碌 "+std::to_wstring(detail[4])+feedback).c_str());
         }
         std::array<std::uint32_t,32> values{};values[0]=1;values[1]=input_offered;values[2]=input_sent;
         auto append=[&](const LatencyHistogram& h,unsigned at){values[at]=h.count;values[at+1]=h.max_us;std::copy(h.bins.begin(),h.bins.end(),values.begin()+at+2);};
@@ -261,6 +266,10 @@ DWORD __stdcall GDMisEndReason(void* key,std::uint32_t* reason){
 DWORD __stdcall GDMisTransportDiagnostics(void* key,std::uint32_t* output,std::uint32_t count){
     if(!output || count!=20)return ERROR_INVALID_PARAMETER;
     return call(key,[&](View& view){const auto v=view.peer->send_diagnostics();std::copy(v.begin(),v.end(),output);return DWORD(ERROR_SUCCESS);},true);
+}
+DWORD __stdcall GDMisInputDiagnostics(void* key,std::uint32_t* output,std::uint32_t count){
+    if(!output || count!=64)return ERROR_INVALID_PARAMETER;
+    return call(key,[&](View& view){const auto v=view.peer->input_diagnostics();std::copy(v.begin(),v.end(),output);return DWORD(ERROR_SUCCESS);},true);
 }
 DWORD __stdcall GDMisStop(void* key){return call(key,[](View& view){view.peer->request_stop();SetEvent(view.wake.value);return DWORD(ERROR_SUCCESS);},true);}
 DWORD __stdcall GDMisClose(void* key){
