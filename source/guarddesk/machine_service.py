@@ -19,4 +19,17 @@ def worker(config,stop):
     from .machine_agent import eligible
     native=UsbWorker(config)
     if not eligible(native.agent):raise PermissionError('Full service worker requires the protected installed image and configuration')
-    return native.run(stop,extended=True)
+    try:
+        result=native.run(stop,extended=True)
+        sessions=getattr(native,'machine_sessions',None)
+        if sessions and sessions.fatal_error:
+            raise RuntimeError('Machine session supervisor failed; preserve diagnostic')
+        return result
+    except BaseException:
+        sessions=getattr(native,'machine_sessions',None)
+        failure=getattr(sessions,'fatal_error',None)
+        if isinstance(failure,dict) and failure.get('operation')=='persist_security_hold':
+            # Even if the marker cannot be persisted, the native host must
+            # receive a non-retryable policy code, rather than generic exit1.
+            raise SystemExit(1260) from None
+        raise

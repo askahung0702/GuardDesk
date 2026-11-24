@@ -10,6 +10,44 @@ def mapping(value):return value if isinstance(value,dict) else {}
 def timestamp(value):return value if type(value) in (int,float) and math.isfinite(value) and value>=0 else 0
 
 
+ONLINE_SECONDS=90
+CONTACT_WRITE_SECONDS=15
+
+
+def availability(device,now=None):
+    """Whole-endpoint reachability, separate from the ordinary Agent heartbeat.
+
+    `status` keeps its historical meaning (ordinary heartbeat within 90 s).
+    `partial` only says that some authenticated component of this endpoint
+    reached the center recently while the ordinary Agent did not report; it
+    is not proof that collectors run or that nobody is logged on.
+    """
+    now=time.time() if now is None else now
+    if device.get('revoked'):return 'revoked'
+    if 0<=now-timestamp(device.get('last_seen'))<ONLINE_SECONDS:return 'online'
+    contact=timestamp(device.get('last_contact'))
+    return 'partial' if contact and 0<=now-contact<ONLINE_SECONDS else 'offline'
+
+
+def touch(db,device,now=None):
+    """Record an authenticated endpoint request, at most one write per 15 s."""
+    now=time.time() if now is None else now
+    if not 0<=now-timestamp(device['last_contact'])<CONTACT_WRITE_SECONDS:
+        seen=max(timestamp(device['last_contact']),timestamp(device['last_seen']))
+        if seen and now-seen>=ONLINE_SECONDS:
+            db.execute('UPDATE devices SET last_contact=?,last_offline_seconds=? WHERE id=?',(now,int(now-seen),device['id']))
+        else:
+            db.execute('UPDATE devices SET last_contact=? WHERE id=?',(now,device['id']))
+
+
+def offline_days(device, now=None):
+    now = time.time() if now is None else now
+    contact = max(timestamp(device.get('last_seen')), timestamp(device.get('last_contact')))
+    if not contact:
+        return None
+    return max(0, int((now - contact) // 86400))
+
+
 def application_signature(policy):
     # Preserve the existing worker signature, including its serialization.
     return hashlib.sha256(json.dumps({'audit':policy['application_audit'],'control':policy['application_control']},sort_keys=True).encode()).hexdigest()
@@ -35,11 +73,13 @@ def progress(device,effective):
     add('usb_mode','USB 儲存',policy['usb_mode'],state,reason,usb.get('received') if usb else None)
     ext=mapping(device.get('extended_status'));fresh=0<=time.time()-timestamp(ext.get('received'))<120
     matches=ext.get('applied_signature')==application_signature(policy)
+    from .audit_collection import stop_signature
     for key,name,desired in [('application_audit','程式啟停稽核',policy['application_audit']),('application_control','程式執行管制',policy['application_control']['enabled'])]:
         if not online:state,reason='offline','端點離線'
         elif ext.get('status')=='failed':state,reason='failed',ext.get('error') or '背景元件設定失敗'
         elif not fresh or not matches:state,reason='pending','尚無目前設定的元件回報；舊元件需更新後回報'
         elif key=='application_audit' and mapping(ext.get('process_audit')).get('status')=='failed':state,reason='failed','程序日誌收集失敗'
+        elif key=='application_audit' and desired and policy.get('application_stop_mode')=='selected' and mapping(ext.get('process_audit')).get('stop_filter')!=stop_signature(policy):state,reason='pending','等待原生元件確認指定程式停止清單'
         elif ext.get('status')=='configured':state,reason='reported','元件回報設定完成；實際執行效果仍需測試'
         else:state,reason='pending','等待背景元件設定結果'
         add(key,name,desired,state,reason,ext.get('received'))
@@ -48,6 +88,7 @@ def progress(device,effective):
         elif not received:state,reason='pending','端點尚未確認目前策略'
         elif report.get('status')=='failed':state,reason='failed','收集器失敗，請查看基本資訊'
         elif not desired:state,reason='disabled','有效策略已停收；歷史資料保留'
+        elif key=='browser_audit' and report.get('status') in ('collecting','partial') and report.get('visit_detail')!=policy.get('browser_visit_detail','domain'):state,reason='pending','等待端點確認瀏覽紀錄的詳細程度'
         elif key=='browser_audit' and report.get('status') in ('collecting','partial'):state,reason='reported',('部分瀏覽器設定檔待重試' if report['status']=='partial' else '端點回報可讀取瀏覽紀錄')
         elif key=='file_audit' and timestamp(report.get('active'))>0:state,reason='reported','端點回報目錄監看中；原生讀取另見端點明細（需元件 0.4.51）'
         else:state,reason='pending',str(report.get('status') or '尚未收到可用的收集器回報')[:120]

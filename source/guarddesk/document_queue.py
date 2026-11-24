@@ -1,4 +1,4 @@
-"""Bounded admission for new copy candidates; never evict existing events.
+"""Bounded admission for native document observations; never evict old events.
 
 The ownership ledger and outbox insert commit together. ACKed IDs are pruned
 with indexed lookups over at most MAX_PENDING entries, without reading payloads.
@@ -29,7 +29,7 @@ class CandidateQueue:
         self.initialized=True
 
     def add(self,details,occurred,kind='file.copy_candidate'):
-        if kind not in ('file.opened','file.copy_candidate'):raise ValueError('Unsupported document event')
+        if kind not in ('file.opened','file.written','file.copy_candidate'):raise ValueError('Unsupported document event')
         if len(self.buffer)<MAX_BUFFER:self.buffer.append((details,occurred,kind))
         else:self.overflow+=1
 

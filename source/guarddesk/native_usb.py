@@ -4,6 +4,7 @@ import os
 import time
 import math
 import sqlite3
+import subprocess
 from pathlib import Path
 from . import __version__
 from .agent import Agent
@@ -44,6 +45,8 @@ def accept_status(db,device,body):
     error=body.get('error','');version=body.get('worker_version','')
     if not isinstance(error,str) or len(error)>500 or not isinstance(version,str) or len(version)>30:raise ValueError('USB 回報內容過長')
     report={**policy,'status':status,'registry':registry,'error':error,'worker_version':version,'verified_readback':status=='configured_replug_required' and readback_matches(policy['usb_mode'],registry),'proof':'agent_report_not_remote_hardware_attestation'}
+    if body.get('removal_keep_process_audit') is True:
+        report['removal_keep_process_audit']=True
     resources=body.get('resources',{})
     if not isinstance(resources,dict):raise ValueError('USB 資源回報不正確')
     cpu=resources.get('cpu_machine_percent')
@@ -87,6 +90,9 @@ class UsbWorker:
             packet=self.agent.call('/api/agent/native-usb-policy',{})
             if packet.get('device_id')!=self.agent.config['device_id']:raise ValueError('端點憑證與識別碼不相符，拒絕安裝／套用 USB 策略')
             policy=validate_packet(packet)
+            if packet.get('heartbeat_only'):
+                with self.agent.db() as db:self.agent.set_idle_revision(packet['heartbeat_only'],db)
+                return {'status':'heartbeat_only'}
             with self.agent.db() as db:db.execute("INSERT OR REPLACE INTO state VALUES ('native_usb_policy',?)",(canonical(policy),))
         except (ConnectionError,OSError):
             if require_online:raise
@@ -98,14 +104,15 @@ class UsbWorker:
             report={**self.controls.apply_usb(policy['usb_mode']),**policy,'worker_version':__version__}
             if not readback_matches(policy['usb_mode'],report.get('registry')):report.update(status='failed',error='USB 登錄寫入後核對不符，請檢查公司群組原則或其他控制工具')
         except OSError as exc:report={**policy,'status':'failed','registry':{},'error':str(exc)[:500],'worker_version':__version__}
+        report['removal_keep_process_audit']=True
         report['resources']=self.agent._process_sampler.sample()
         with self.agent.db() as db:db.execute("INSERT OR REPLACE INTO state VALUES ('native_usb_report',?)",(canonical(report),))
         if online:self.agent.call('/api/agent/native-usb-status',report)
         return report
 
-    def restore(self):
+    def restore(self,*,pause=False):
         if not is_admin():raise PermissionError('還原 USB 控制需要系統管理員權限')
-        if getattr(self,'custom',None):self.custom.close()
+        if not pause and getattr(self,'custom',None):self.custom.close()
         recovery=self.agent.config_path.parent/'CustomSettings'/'network-lease.json'
         if recovery.exists():
             from .custom_windows import trusted_native
@@ -118,9 +125,58 @@ class UsbWorker:
         if not backup.exists():return {'status':'nothing_to_restore'}
         result=self.controls.apply_usb('allow')
         report={'version':0,'usb_mode':'allow','status':'restored','registry':result['registry'],'worker_version':__version__}
-        try:self.agent.call('/api/agent/native-usb-status',report)
-        except (ConnectionError,OSError):pass
+        if not pause:
+            try:self.agent.call('/api/agent/native-usb-status',report)
+            except (ConnectionError,OSError):pass
         return report
+
+    def idle_cycle(self,companion):
+        from contextlib import nullcontext
+        from .policy import heartbeat_policy
+        rev=self.agent.idle_revision
+        self.agent.machine_session_policy=heartbeat_policy(rev)
+        # Send the heartbeat even on conflicts, and retry the owned restore on the next round.
+        ready=getattr(self,'idle_applied',0)==rev
+        if not ready:
+            ready=True
+            restore_errors=(OSError,ValueError,sqlite3.Error,subprocess.TimeoutExpired)
+            if companion:
+                companion.close()
+                companion.collector=None
+                companion.block_collector=None
+                companion.policy=None
+                companion.signature=None
+                companion.website_signature=None
+                companion._next_report=0
+            try:
+                with self.custom.effect_lock if self.custom else nullcontext():
+                    if self.custom and self.custom.scheduler:self.custom.scheduler.pending=None
+                    self.restore(pause=True)
+            except restore_errors:
+                ready=False
+            try:
+                if companion:
+                    companion.restore(keep_process_audit=True,pause=True)
+                    companion.documents=None
+            except restore_errors:
+                ready=False
+            try:
+                if self.controls.installed:
+                    from .windows_controls import powershell
+                    qos=powershell('ApplyQos',{'rules':[],'state_dir':str(self.controls.directory)})
+                    if qos.get('status')!='no_rules':raise OSError('GuardDesk QoS 還原待確認')
+            except restore_errors:
+                ready=False
+            if ready:self.idle_applied=rev
+        reply=self.agent.call('/api/agent/heartbeat',{'native_idle_revision':rev if ready else 0})
+        if reply.get('heartbeat_only') is False:
+            with self.agent.db() as db:self.agent.set_idle_revision(0,db)
+            self.idle_applied=0
+            return
+        packet=reply['policy']
+        if type(packet.get('heartbeat_only')) is not int or packet['heartbeat_only']<=0:
+            raise ValueError('無效的端點模式回覆')
+        with self.agent.db() as db:self.agent.set_idle_revision(packet['heartbeat_only'],db)
 
     def run(self,stop,extended=False):
         from .single_instance import machine_instance
@@ -149,18 +205,31 @@ class UsbWorker:
                     except (OSError,ValueError) as exc:
                         self.agent.feature_status['machine_agent']={'scope':'machine','status':'failed','type':type(exc).__name__}
                     if self.machine_sessions:self.agent.feature_status['machine_agent']=self.machine_sessions.snapshot()
+            # Center retry gate: 5→10→20→30 seconds with jitter. The limit equals
+            # the normal sync interval, so cached local enforcement is not
+            # re-applied less often offline than online.
+            from .transport_errors import Backoff
+            gate=Backoff(5,30)
             try:
                 while not stop.is_set():
                     try:
+                        if self.agent.idle_revision:
+                            try:self.idle_cycle(companion)
+                            except (OSError,ValueError,KeyError):pass
+                            if self.agent.idle_revision:stop.wait(30)
+                            next_sync=0
+                            continue
                         from .decommission import native_step
                         removal=native_step(self)
                         if removal in ('pending','done') and self.custom:self.custom.close()
                         if removal=='done':return
                         if removal=='pending':stop.wait(5);continue
-                        if time.monotonic()>=next_sync:
+                        if time.monotonic()>=next_sync and gate.ready():
                             self.cycle()
+                            if self.agent.idle_revision:continue
                             if companion:
                                 companion.configure()
+                                if self.agent.idle_revision:continue
                             if self.machine_sessions:self.machine_sessions.report_main_update()
                             if self.agent.config.get('update_key'):
                                 from .update_client import save
@@ -170,13 +239,16 @@ class UsbWorker:
                                     health['native_remote']=native_diagnostics(self.machine_sessions)
                                     health['session_startup']=session_diagnostics(self.machine_sessions.snapshot())
                                 save(self.agent.config_path.parent/'native-health.json',health)
-                            next_sync=time.monotonic()+30
+                            next_sync=time.monotonic()+30;gate.success()
                         elif companion:
-                            companion.poll()
+                            # Local collectors continue while the center lane
+                            # backs off; only upload/status wait for the gate.
+                            companion.poll(online=gate.ready())
                     except (ConnectionError,OSError,ValueError) as exc:
-                        if companion and companion.policy is None:
+                        gate.failure()
+                        if companion and companion.policy is None and not self.agent.idle_revision:
                             try:
-                                companion.poll()
+                                companion.poll(online=False)
                             except (ConnectionError,OSError,ValueError):pass
                         # Keep prior protections. Persist one bounded diagnostic, never default to allow.
                         with self.agent.db() as db:db.execute("INSERT OR REPLACE INTO state VALUES ('native_usb_error',?)",(canonical({'error':str(exc)[:500],'time':time.time()}),))
@@ -184,7 +256,6 @@ class UsbWorker:
                         from .policy import agent_policy_wire
                         self.agent.machine_session_policy=agent_policy_wire({'version':0,'body':companion.policy})
                     stop.wait(5 if companion else 30)
-
             finally:
                 if self.machine_sessions:self.machine_sessions.close()
                 if companion:companion.close()

@@ -63,25 +63,40 @@ def sanitize_url(url):
 def handle_message(agent,message):
     from .upload_proxy import pac_script
     if not isinstance(message,dict):raise ValueError('Invalid message')
+    if message.get('type')=='upload_gap' and message.get('reason')=='request_body_unavailable':
+        # Intentionally not collected. Legacy extensions reserve recorded=False
+        # for policy-disabled retry, so acknowledge disposal without claiming
+        # a stored event or blocking the following real audit messages.
+        return {'ok':True,'discarded':True}
     username=current_account()
-    policy=agent.policy_for_user(username)['body']
+    packet=agent.policy_for_user(username)
+    policy=packet['body']
     from .decommission import saved
+    from .audit_collection import uploads_enabled
     if saved(agent):
-        policy={**policy,'browser_audit':False,'upload_rules':[]}
+        policy={**policy,'browser_audit':False,'browser_upload_mode':'disabled','upload_rules':[]}
+    upload_audit = uploads_enabled(policy)
     if message.get('type')=='status':
         # Legacy extensions remain valid; only the versioned handshake is used
         # as new readiness evidence. Never infer it from host registration.
-        if 'extension_version' in message:
+        if 'extension_version' in message and not packet.get('heartbeat_only'):
             from .document_audit import browser_handshake
             browser_handshake(agent,message)
         wants_proxy=any(r['type']=='domain' for r in policy['upload_rules'])
         proxy_configured=bool(agent.config.get('proxy_enabled'))
-        return {'ok':True,'browser_audit':policy['browser_audit'],'pac':pac_script(policy['upload_rules'],agent.config.get('proxy_port',17879)),
-                'web_upload_audit':policy['browser_audit'],'memory_upload_v1':True,'proxy_required':wants_proxy and proxy_configured,
+        # Existing extensions use browser_audit as the transport gate for pending uploads.
+        return {'ok':True,'browser_audit':policy['browser_audit'] or upload_audit,'pac':pac_script(policy['upload_rules'],agent.config.get('proxy_port',17879)),
+                'web_upload_audit':upload_audit,'memory_upload_v1':True,'proxy_required':wants_proxy and proxy_configured,
                 'proxy_policy_state':'proxy_not_configured' if wants_proxy and not proxy_configured else 'configured_requires_runtime_check' if wants_proxy else 'not_required',
                 'device_id':agent.config['device_id']}
     if message.get('type') not in ('navigation','page_title','web_upload','upload_gap'):raise ValueError('Unknown native operation')
-    if not policy['browser_audit']:return {'ok':True,'recorded':False}
+    if packet.get('heartbeat_only'):return {'ok':True,'discarded':True}
+    if not (policy['browser_audit'] or upload_audit):return {'ok':True,'recorded':False}
+    if not upload_audit and message['type'] in ('web_upload', 'upload_gap'):return {'ok':True,'recorded':False}
+    if message['type'] in ('navigation','page_title'):
+        # Saved History is the sole browsing source. Acknowledge legacy
+        # extension copies without persisting them or blocking later uploads.
+        return {'ok':True,'discarded':True}
     url=message.get('url','')
     cleaned=sanitize_url(url)
     if not cleaned:return {'ok':True,'recorded':False}
@@ -104,13 +119,11 @@ def handle_message(agent,message):
         return {'ok':True,'recorded':True,'event_id':eid}
     if message['type']=='upload_gap':
         reason=message.get('reason')
-        if reason not in ('request_body_unavailable','queue_capacity','request_capacity','body_metadata_unresolved'):raise ValueError('Invalid gap reason')
+        if reason not in ('queue_capacity','request_capacity','body_metadata_unresolved'):raise ValueError('Invalid gap reason')
         count=message.get('lost_count',0)
         if type(count) is not int or not 0<=count<=2**53-1:raise ValueError('Invalid gap count')
         eid=agent.queue('web.upload_gap',{'source':'browser_webrequest','reason':reason,'lost_count':count,'url':safe,'domain':domain,'user':username,'browser':browser},'warning',occurred=occurred,event_id=event_id)
         return {'ok':True,'recorded':True,'event_id':eid}
-    eid=agent.queue('web.page_title' if message['type']=='page_title' else 'web.navigation',{'url':safe,'title':title,'domain':domain,'user':username,'browser':browser,'tab_id':tab,'source':'browser_extension'},occurred=occurred,event_id=event_id)
-    return {'ok':True,'recorded':True,'event_id':eid}
 
 
 def manifest_path_for(config):

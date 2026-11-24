@@ -11,7 +11,7 @@ from .store import Store,canonical,digest
 from .policy_operations import apply_operations,validate_operations,policy_keys,get_value,PATHS
 
 EXPORT_KEYS={'mode','allow_export','blocked_extensions','keywords','max_export_mb'}
-USER_KEYS=EXPORT_KEYS|{'browser_audit'}
+USER_KEYS=EXPORT_KEYS|{'browser_audit','browser_visit_detail','browser_upload_mode'}
 
 
 class ManagementError(Exception):

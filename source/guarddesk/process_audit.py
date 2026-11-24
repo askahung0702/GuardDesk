@@ -12,6 +12,10 @@ IDS=('{0CCE922B-69AE-11D9-BED3-505054503030}','{0CCE922C-69AE-11D9-BED3-50505450
 _PRIVILEGE_LOCK=threading.RLock()
 
 
+class ProcessAuditConflict(OSError):
+    """Current Windows audit flags do not match this worker's baseline."""
+
+
 def auditpol(*arguments):
     if os.name!='nt':raise OSError('Windows process auditing requires Windows')
     system=ctypes.create_unicode_buffer(32768)
@@ -73,7 +77,9 @@ def read_flags(directory,ids=IDS):
     return values
 
 
-def configure(directory,enabled):
+def configure(directory,enabled,*,keep_current=False):
+    if keep_current and enabled:
+        raise ValueError('Preserving process audit is only valid during removal')
     directory=Path(directory);directory.mkdir(exist_ok=True)
     backup=directory/'process-audit-original.json'
     if not enabled and not backup.exists():return {'process_audit_enabled':False,'process_audit_configuration':'not_managed'}
@@ -84,7 +90,12 @@ def configure(directory,enabled):
     else:
         saved=current
         with backup.open('x',encoding='utf-8') as stream:json.dump(saved,stream)
-    if any(current[key] not in (saved[key],saved[key]|1) for key in IDS):raise OSError('Process audit changed outside GuardDesk; preserve company policy')
+    if keep_current:
+        # Both subcategories belong to the company's current policy for this
+        # removal. Keep the ledger until file cleanup actually succeeds.
+        return {'process_audit_configuration':'preserved_by_admin'}
+    if any(current[key] not in (saved[key],saved[key]|1) for key in IDS):
+        raise ProcessAuditConflict('Process audit changed outside GuardDesk; preserve company policy')
     desired={key:(saved[key]|1) if enabled else saved[key] for key in IDS}
     for key in IDS:
         if current[key]!=desired[key]:

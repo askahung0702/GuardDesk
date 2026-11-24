@@ -78,17 +78,26 @@ def run():
             assert check.returncode!=0 and 'MIS'.encode() in check.stderr
             denied=subprocess.run([str(exe),'usb-worker','--config',str(config),'--once'],capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
             assert denied.returncode!=0 and 'SYSTEM' in denied.stderr.decode('utf-8',errors='replace')
-        message=json.dumps({'type':'navigation','url':'https://example.com/packaged-test','request_id':'frozen','event_id':'browser-frozen-test'}).encode()
+        messages=[{'type':kind,'url':'https://example.com/packaged-test','request_id':kind,'event_id':'browser-frozen-'+kind} for kind in ('navigation','page_title')]
+        messages.append({'type':'web_upload','phase':'started','upload_id':'owned-frozen-flow','method':'POST','files':[{'path':r'C:\Owned\report.pdf'}],'url':'https://example.com/packaged-test','request_id':'frozen','event_id':'browser-frozen-test'})
         import struct
-        native=subprocess.run([str(exe),'browser-host','--config',str(config)],input=struct.pack('<I',len(message))+message,capture_output=True,timeout=20,creationflags=subprocess.CREATE_NO_WINDOW)
+        frames=[json.dumps(message).encode() for message in messages]
+        native=subprocess.run([str(exe),'browser-host','--config',str(config)],input=b''.join(struct.pack('<I',len(frame))+frame for frame in frames),capture_output=True,timeout=20,creationflags=subprocess.CREATE_NO_WINDOW)
         assert native.returncode==0,native.stderr.decode('utf-8',errors='replace')
-        size=struct.unpack('<I',native.stdout[:4])[0];reply=json.loads(native.stdout[4:4+size])
+        from guarddesk.browser_host import native_read
+        import io
+        responses=io.BytesIO(native.stdout)
+        for kind in ('navigation','page_title'):
+            assert native_read(responses)=={'ok':True,'discarded':True,'request_id':kind}
+        reply=native_read(responses);assert native_read(responses) is None
         assert reply['recorded'] and reply['request_id']=='frozen'
         # Real windowless entry point, isolated offline policy; no startup/task changes.
         from guarddesk.agent import Agent
         settings=json.loads(config.read_text());settings['remote_enabled']=False;config.write_text(json.dumps(settings))
         isolated=Agent(config)
         with isolated.db() as db:
+            rows=[json.loads(row[0]) for row in db.execute('SELECT payload FROM outbox')]
+            assert len(rows)==1 and rows[0]['kind']=='web.upload_started'
             db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)",(json.dumps({'version':0,'body':{'file_audit':{'enabled':False,'scope':'managed','exclude_paths':[]},'application_audit':False,'browser_audit':False}}),))
         gui=exe.parent/'GuardDeskAgent.exe'
         # A disposable desktop probe must not claim the signed-in user's real
@@ -507,7 +516,7 @@ def run():
                 assert __version__.encode() in response.read()
         finally:
             process.terminate();process.communicate(timeout=10)
-    report={'passed':True,'checks':['frozen exe starts','AES-GCM package roundtrip','SQLite server health','bundled HTML JS CSS served','frozen native browser host writes offline event','frozen server migration snapshot succeeds while source serves','frozen server-check validates separate data directory','frozen serve --config HTTPS health with trusted test CA and unrelated working directory','config/CLI override ambiguity rejected','USB installer bundled and worker CLI available','non-admin USB enforcement denied before apply' if not is_admin() else 'non-admin check skipped: elevated test account'],'exe_sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}
+    report={'passed':True,'checks':['frozen exe starts','AES-GCM package roundtrip','SQLite server health','bundled HTML JS CSS served','frozen native browser host discards legacy browsing and persists offline upload metadata','frozen server migration snapshot succeeds while source serves','frozen server-check validates separate data directory','frozen serve --config HTTPS health with trusted test CA and unrelated working directory','config/CLI override ambiguity rejected','USB installer bundled and worker CLI available','non-admin USB enforcement denied before apply' if not is_admin() else 'non-admin check skipped: elevated test account'],'exe_sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}
     report['checks'].append('frozen Agent stops file modifications; frozen Server acknowledges filtered legacy batches, keeps rename replay idempotent and preserves historical hashes')
     report['gui_sha256']=hashlib.sha256(gui.read_bytes()).hexdigest()
     development_report={'version':__version__,'passed':True,'exe_sha256':report['exe_sha256'],

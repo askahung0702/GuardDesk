@@ -221,6 +221,44 @@ class UpdateTransactionTest(unittest.TestCase):
         adapter.value='broken';tx.recover();self.assertEqual(adapter.value,'0.4.11')
         stale={**self.payload,'id':'c'*32,'created':self.payload['created']-10}
         with self.assertRaises(ValueError):tx.apply(packages.sign(self.private,stale))
+    def test_desktop_recovery_runs_outside_the_process_it_may_stop(self):
+        from contextlib import nullcontext
+        from guarddesk.update_client import UserPoller
+        from unittest.mock import Mock
+        adapter=Adapter(self.root)
+        tx=Transaction(self.agent,'main',adapter)
+        tx.write({'job':self.payload,'phase':'old_moved','old_version':'0.4.11','target':'0.4.12','started':time.time()})
+        poller=UserPoller(self.agent,Mock())
+        with patch.object(poller,'start_child') as child, patch.object(Transaction,'recover') as inline:
+            with patch('guarddesk.desktop_agent.instance',return_value=nullcontext(False)):
+                self.assertFalse(poller.reconcile(tx.journal))
+            child.assert_not_called()
+            with patch('guarddesk.desktop_agent.instance',return_value=nullcontext(True)):
+                self.assertFalse(poller.reconcile(tx.journal))
+            child.assert_called_once_with(self.payload['id'])
+            inline.assert_not_called()
+        tx.recover()
+        self.assertEqual(json.loads(tx.journal.read_text(encoding='utf-8'))['phase'],'rolled_back')
+
+    def test_retry_capacity_charges_only_missing_zip_and_existing_verified_stage(self):
+        from guarddesk.update_client import RetryUpdate
+        adapter=Adapter(self.root)
+        tx=Transaction(self.agent,'main',adapter)
+        job={**self.payload,'transfer_role':'main'}
+        envelope=packages.sign(self.private,job)
+        directory=tx.root/job['id']
+        directory.mkdir()
+        data=self.archive.read_bytes()
+        (directory/f"package.main.{job['release_id']}.part").write_bytes(data[:21])
+        with patch('guarddesk.update_client.storage_budget') as budget, patch.object(tx,'report',side_effect=lambda j,s,v: (_ for _ in ()).throw(RetryUpdate()) if s=='applying' else None):
+            with self.assertRaises(RetryUpdate):tx.apply(envelope)
+            self.assertEqual(budget.call_args.args[1],len(data)-21)
+        with patch('guarddesk.update_client.storage_budget') as budget, patch.object(adapter,'budget') as capacity:
+            tx.apply(envelope)
+            self.assertEqual(budget.call_args.args[1],0)
+            capacity.assert_called_once_with(0)
+        self.assertEqual(adapter.stops,1)
+
     def test_cleanup_refuses_outside_scope_and_privileged_acl_requires_protected_owner(self):
         outside=self.root/'keep';outside.mkdir();(outside/'data').write_text('keep')
         with self.assertRaises(ValueError):remove_managed(self.root/'agent',outside,'.*')
@@ -239,3 +277,63 @@ class UpdateTransactionTest(unittest.TestCase):
             with self.assertRaises(RetryUpdate):download(self.agent,self.payload,manifest,target)
         self.assertFalse(target.exists());self.assertFalse(target.with_suffix('.part').exists())
         self.assertEqual(self.agent.queue_status()['pending'],1)
+
+    def test_negotiated_download_resumes_from_preserved_bytes_and_checks_final_hash(self):
+        self.download.stop()
+        from guarddesk.update_client import download,RetryUpdate
+        from unittest.mock import MagicMock
+        manifest=packages.verify(self.payload['release'],self.agent.config['update_key'])
+        job={**self.payload,'transfer_role':'native'}
+        data=self.archive.read_bytes();prefix=data[:17]
+        opener=MagicMock()
+        first,resumed=MagicMock(),MagicMock()
+        for response in (first,resumed):response.__enter__.return_value=response
+        first.status=200;first.headers={'Content-Length':str(len(data))}
+        first.read.side_effect=[prefix,b'']
+        resumed.status=206
+        resumed.headers={'Content-Length':str(len(data)-len(prefix)),
+                         'Content-Range':f'bytes {len(prefix)}-{len(data)-1}/{len(data)}'}
+        resumed.read.return_value=data[len(prefix):]
+        opener.open.side_effect=[first,resumed]
+        target=self.root/'download.zip'
+        with patch('guarddesk.update_client.transport',return_value=opener):
+            with self.assertRaises(RetryUpdate):download(self.agent,job,manifest,target)
+            self.assertEqual(target.with_suffix(f'.native.{manifest["sha256"]}.part').read_bytes(),prefix)
+            self.assertFalse(target.exists())
+            self.assertEqual(download(self.agent,job,manifest,target),target)
+        self.assertEqual(opener.open.call_args.args[0].get_header('Range'),'bytes=17-')
+        self.assertEqual(target.read_bytes(),data)
+
+    def test_lost_switch_authorization_and_terminal_ack_resume_same_job(self):
+        from guarddesk.update_client import RetryUpdate
+        from guarddesk.transport_errors import CenterTransportError
+        adapter=Adapter(self.root);tx=Transaction(self.agent,'native',adapter)
+        missing={'applying','healthy'}
+        def report(path,body):
+            self.reports.append(body)
+            if body['state'] in missing:
+                missing.remove(body['state'])
+                raise CenterTransportError('temporary_network')
+            return {'ok':True}
+        self.agent.call=report
+        with self.assertRaises(RetryUpdate):tx.apply(self.envelope)
+        before=json.loads(tx.journal.read_text(encoding='utf-8'))
+        self.assertEqual(before['phase'],'authorizing');self.assertEqual(adapter.stops,0)
+        tx.apply(self.envelope)
+        finished=json.loads(tx.journal.read_text(encoding='utf-8'))
+        self.assertEqual(finished['phase'],'healthy');self.assertFalse(finished['reported'])
+        tx.recover()
+        self.assertTrue(json.loads(tx.journal.read_text(encoding='utf-8'))['reported'])
+        self.assertEqual(adapter.stops,1)
+        self.assertEqual([r['state'] for r in self.reports],['downloading','verifying','applying','applying','restarting','healthy','healthy'])
+        self.assertEqual({r['job_id'] for r in self.reports},{self.payload['id']})
+
+    def test_expired_pre_authorization_never_stops_agent_and_can_close_original_job(self):
+        adapter=Adapter(self.root);tx=Transaction(self.agent,'native',adapter)
+        expired={**self.payload,'expires':time.time()-1}
+        tx.write({'job':expired,'phase':'authorizing','old_version':'0.4.11','target':'0.4.12'})
+        tx.recover()
+        self.assertEqual(adapter.stops,0)
+        self.assertEqual(adapter.value,'0.4.11')
+        self.assertEqual(self.reports[-1]['job_id'],expired['id'])
+        self.assertEqual(self.reports[-1]['state'],'failed')

@@ -25,8 +25,9 @@ static const wchar_t *Session=L"GuardDesk-DocumentIO-v1";
 static const wchar_t *Mutex=L"Global\\GuardDesk-DocumentIO-v1-Owner";
 static bool fixtureMode=false;
 struct Record {uint64_t time,offset,bytes;uint32_t pid,tid,op,status;uint64_t openId;wchar_t path[512];};
-struct Pending {Record value;uint64_t stamp;};
-struct Name {std::wstring path;uint64_t stamp,openId;uint32_t pid;};
+static constexpr uint32_t NonDirectoryFlag=0x20000;
+struct Pending {Record value;uint64_t stamp,fileObject=0;};
+struct Name {std::wstring path;uint64_t stamp,openId;uint32_t pid;bool directory,nonDirectory;};
 static std::unordered_map<uint64_t,Name> names;
 static std::unordered_map<uint64_t,Pending> pending;
 static std::deque<Record> records;
@@ -96,6 +97,7 @@ static void issuer(EVENT_RECORD* e,Record& r) {
 }
 static void push(const Record& r) {
     std::lock_guard<std::mutex> lock(queueLock);
+    const auto op=r.op&~NonDirectoryFlag;
     if(r.op==64) {
         uint64_t now=GetTickCount64();
         while(!openOrder.empty()&&(now-openOrder.front().second>=1000||openOrder.size()>=2048)) {
@@ -108,7 +110,7 @@ static void push(const Record& r) {
         auto it=recentOpens.find(key);
         if(it!=recentOpens.end()&&now-it->second<1000){++coalescedOpens;return;}
         recentOpens[key]=now;openOrder.push_back({key,now});
-    } else if(r.op==67||r.op==68) {
+    } else if(op==67||op==68) {
         // Combine only contiguous, completed ranges from the same open/thread.
         // This retains range evidence while avoiding one ring item per buffer.
         unsigned searched=0;
@@ -122,13 +124,45 @@ static void push(const Record& r) {
     }
     if(records.size()>=2048){++dropped;return;}records.push_back(r);
 }
+static bool contentSizeInfo(UCHAR op,uint32_t infoClass){return op==69&&infoClass==20;}
+static bool overwriteCompletion(uint64_t options,uint64_t result) {
+    const auto disposition=options>>24;
+    return (disposition==0&&result==0)||((disposition==4||disposition==5)&&result==3);
+}
+static bool completeRecord(Record& r,uint32_t status,uint64_t extra,uint64_t age) {
+    if(age>10000)return false;
+    r.status=status;
+    const auto op=r.op&~NonDirectoryFlag;
+    if(op==64){
+        // Require both the requested disposition and the completed result.
+        const bool overwrite=status==0&&overwriteCompletion(r.offset,extra);
+        r.offset=0;
+        if(overwrite){r.op=65537|(r.bytes==1?NonDirectoryFlag:0);r.bytes=0;return true;}
+        return (int32_t)status>=0&&extra==1;
+    }
+    // SetInfo does not expose the cache manager's AdvanceOnly flag. An
+    // unidentified/system issuer is insufficient to assert a file size change.
+    if(op==69)return status==0&&r.pid>4;
+    if(op!=67&&op!=68)return false;
+    if(op==68&&(status!=0||extra>r.bytes))return false;
+    r.bytes=extra;return (int32_t)status>=0&&r.bytes;
+}
 static void callbackImpl(EVENT_RECORD* e) {
     if(!IsEqualGUID(e->EventHeader.ProviderId,FileGuid))return;
     const UCHAR op=e->EventHeader.EventDescriptor.Opcode;
+    uint64_t endSize=0;
+    if(op==69){
+        uint32_t infoClass=0;
+        if(!field(e,L"InfoClass",&infoClass,sizeof(infoClass))){++unknown;return;}
+        // Attribute/allocation changes remain out of content collection scope.
+        if(!contentSizeInfo(op,infoClass))return;
+        if(!field(e,L"ExtraInfo",&endSize,sizeof(endSize))||endSize>INT64_MAX){++unknown;return;}
+    }
     Record actor={};
-    if(op==64||op==67||op==68) {
+    if(op==64||op==67||op==68||op==69) {
         issuer(e,actor);
         if(!fixtureMode&&actor.pid==GetCurrentProcessId())return;
+        if(op==69&&actor.pid<=4)return;
     }
     // All schemas are queried through TDH. Unknown/malformed fields fail closed.
     if(op==66){
@@ -149,28 +183,34 @@ static void callbackImpl(EVENT_RECORD* e) {
         if(names.size()>=8192){names.clear();pending.clear();++dropped;}
         auto previous=names.find(key);
         uint64_t openId=(op==64||previous==names.end())?++nextOpenId:previous->second.openId;
-        names[key]={value,GetTickCount64(),openId,op==64?actor.pid:(previous==names.end()?0:previous->second.pid)};
+        const bool knownDirectory=op!=64&&previous!=names.end()&&previous->second.directory;
+        const bool knownFile=op!=64&&previous!=names.end()&&previous->second.nonDirectory&&
+            _wcsicmp(previous->second.path.c_str(),value.c_str())==0;
+        names[key]={value,GetTickCount64(),openId,op==64?actor.pid:(previous==names.end()?0:previous->second.pid),knownDirectory,knownFile};
         if(op==64) {
             uint32_t options=0,attributes=0;
             // Directory opens and unknown schemas never become file opens.
             if(!field(e,L"CreateOptions",&options,sizeof(options))||!field(e,L"FileAttributes",&attributes,sizeof(attributes))){names[key].pid=0;++unknown;return;}
-            if((options&1)||(attributes&FILE_ATTRIBUTE_DIRECTORY)){names[key].pid=0;return;}
+            if((options&1)||(attributes&FILE_ATTRIBUTE_DIRECTORY)){names[key].pid=0;names[key].directory=true;return;}
             uint64_t irp=number(e,L"IrpPtr");if(!irp){++unknown;return;}
-            Record r=actor;r.op=64;r.bytes=(options&0x40)?1:0;r.openId=openId;wcsncpy_s(r.path,value.c_str(),_TRUNCATE);
+            Record r=actor;r.op=64;r.offset=options;r.bytes=(options&0x40)?1:0;r.openId=openId;wcsncpy_s(r.path,value.c_str(),_TRUNCATE);
             if(pending.size()>=4096){pending.clear();++dropped;}
-            pending[irp]={r,GetTickCount64()};
+            pending[irp]={r,GetTickCount64(),key};
         }
         return;
     }
-    if(op==67||op==68) {
+    if(op==67||op==68||op==69) {
         // FileKey identifies shared file metadata; FileObject identifies this
         // open. Prefer the latter so open/read dedup never joins another open.
         uint64_t key=number(e,L"FileObject");auto it=names.find(key);
-        if(it==names.end())it=names.find(number(e,L"FileKey"));
-        if(it==names.end())return;
+        const bool exactObject=it!=names.end();
+        // A size request must match the open instance, not a shared name key.
+        if(it==names.end()&&op!=69)it=names.find(number(e,L"FileKey"));
+        if(it==names.end()||((op==68||op==69)&&it->second.directory))return;
         if(!it->second.pid)it->second.pid=actor.pid;
         uint64_t irp=number(e,L"IrpPtr");if(!irp){++unknown;return;}
-        Record r=actor;r.offset=number(e,L"Offset");r.bytes=number(e,L"IoSize");r.op=op;
+        Record r=actor;r.offset=op==69?0:number(e,L"Offset");r.bytes=op==69?endSize:number(e,L"IoSize");r.op=op;
+        if(op!=67&&exactObject&&it->second.nonDirectory)r.op|=NonDirectoryFlag;
         r.openId=it->second.openId;
         wcsncpy_s(r.path,it->second.path.c_str(),_TRUNCATE);
         if(pending.size()>=4096){pending.clear();++dropped;}
@@ -178,18 +218,17 @@ static void callbackImpl(EVENT_RECORD* e) {
     }
     if(op==76) {
         uint64_t irp=number(e,L"IrpPtr");auto it=pending.find(irp);if(it==pending.end())return;
-        Record r=it->second.value;uint64_t age=GetTickCount64()-it->second.stamp;pending.erase(it);
+        Record r=it->second.value;
+        const bool fileOpen=r.op==64&&r.bytes==1;
+        const auto fileObject=it->second.fileObject;
+        uint64_t age=GetTickCount64()-it->second.stamp;pending.erase(it);
         uint32_t status=0;if(!field(e,L"NtStatus",&status,sizeof(status))||age>10000){++unknown;return;}
-        r.status=status;
         uint64_t extra=0;if(!field(e,L"ExtraInfo",&extra,sizeof(extra))){++unknown;return;}
-        if(r.op==64) {
-            // FILE_OPENED=1: an existing path opened successfully. This is not
-            // evidence of ReadData, human viewing, or website transmission.
-            if((int32_t)status>=0&&extra==1){push(r);++completed;}
-            return;
+        if(fileOpen&&status==0&&extra<=3){
+            auto name=names.find(fileObject);
+            if(name!=names.end()&&name->second.openId==r.openId)name->second.nonDirectory=true;
         }
-        r.bytes=extra;
-        if((int32_t)r.status>=0&&r.bytes){push(r);++completed;}
+        if(completeRecord(r,status,extra,age)){push(r);++completed;}
     }
 }
 static void WINAPI callback(EVENT_RECORD* e) {try{callbackImpl(e);}catch(...){++dropped;}}
@@ -197,6 +236,7 @@ static ULONG WINAPI bufferCallback(EVENT_TRACE_LOGFILEW* e){if(e->EventsLost)dro
 static DWORD WINAPI consume(void*) {SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);DWORD code=ProcessTrace(&consumer,1,nullptr,nullptr);consumerResult=(code||stopping)?code:ERROR_OPERATION_ABORTED;return 0;}
 extern "C" __declspec(dllexport) DWORD gd_trace_record_size(){return sizeof(Record);}
 extern "C" __declspec(dllexport) DWORD gd_trace_lifecycle_version(){return 1;}
+extern "C" __declspec(dllexport) DWORD gd_trace_write_activity_version(){return 3;}
 static DWORD startFiltered(const wchar_t* const* selected,DWORD count,const wchar_t* const* rejected,DWORD rejectedCount) {
     if(threadHandle||!count||count>26||rejectedCount>128||(!selected)||(!rejected&&rejectedCount))return ERROR_INVALID_PARAMETER;
     roots.clear();exclusions.clear();names.clear();pending.clear();records.clear();recentOpens.clear();openOrder.clear();mergedIo=0;coalescedOpens=0;dropped=0;unknown=0;completed=0;consumerResult=0;stopping=false;nextOpenId=0;

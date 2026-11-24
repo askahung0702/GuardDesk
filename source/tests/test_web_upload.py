@@ -33,6 +33,46 @@ class WebUploadTest(unittest.TestCase):
     def rows(self):
         with self.agent.db() as db:return [json.loads(r[0]) for r in db.execute('SELECT payload FROM outbox')]
 
+    def test_unavailable_body_gap_discarded_before_policy_url_or_queue(self):
+        message={'type':'upload_gap','reason':'request_body_unavailable','url':'https://example.com/collect?token=private'}
+        with patch('guarddesk.browser_host.current_account',side_effect=AssertionError('ignored diagnostics must not resolve identity')),patch.object(self.agent,'policy_for_user',side_effect=AssertionError('ignored diagnostics must not read policy')),patch.object(self.agent,'queue') as queue:
+            reply=handle_message(self.agent,message);queue.assert_not_called()
+        self.assertEqual(reply,{'ok':True,'discarded':True})
+        # Legacy flush stops only on recorded===false. Omission acknowledges
+        # consumption without claiming that the event was actually stored.
+        self.assertNotIn('recorded',reply);self.assertFalse(self.rows())
+
+    def test_ignored_gap_retries_preserve_existing_outbox_after_restart(self):
+        handle_message(self.agent,self.message());before=self.rows()
+        message={'type':'upload_gap','reason':'request_body_unavailable','url':'https://example.com/collect','event_id':'browser-ignored-gap'}
+        for _ in range(3):self.assertTrue(handle_message(self.agent,message)['discarded'])
+        restarted=Agent(self.config)
+        try:self.assertTrue(handle_message(restarted,message)['discarded'])
+        finally:restarted.close_collectors()
+        self.assertEqual(self.rows(),before)
+
+    def test_direct_agent_queue_discards_same_reason_without_database_access(self):
+        with patch.object(self.agent,'db',side_effect=AssertionError('ignored diagnostic must not touch SQLite')):
+            self.assertIsNone(self.agent.queue('web.upload_gap',{'reason':'request_body_unavailable','url':'https://example.com/collect'}))
+        self.assertFalse(self.rows())
+
+    def test_other_gap_reasons_remain_durable_and_validated(self):
+        reasons=('queue_capacity','request_capacity','body_metadata_unresolved')
+        for reason in reasons:
+            reply=handle_message(self.agent,{'type':'upload_gap','reason':reason,'lost_count':7,'event_id':'browser-gap-'+reason,'url':'https://example.com/collect?token=private'})
+            self.assertTrue(reply['recorded'])
+        self.assertEqual([row['details']['reason'] for row in self.rows()],list(reasons))
+        self.assertTrue(all('private' not in row['details']['url'] for row in self.rows()))
+        for reason in ('request_body_unavailable_extra','REQUEST_BODY_UNAVAILABLE','unknown'):
+            with self.assertRaises(ValueError):handle_message(self.agent,{'type':'upload_gap','reason':reason,'url':'https://example.com'})
+        with self.assertRaises(ValueError):handle_message(self.agent,{'type':'upload_gap','reason':'queue_capacity','lost_count':-1,'url':'https://example.com'})
+        self.assertEqual(len(self.rows()),3)
+
+    def test_same_reason_text_on_real_upload_is_not_discarded(self):
+        reply=handle_message(self.agent,self.message(reason='request_body_unavailable'))
+        self.assertTrue(reply['recorded']);self.assertEqual(len(self.rows()),1)
+        self.assertEqual(self.rows()[0]['kind'],'web.upload_started')
+
     def test_exact_request_evidence_durable_redacted_and_deduplicated(self):
         message=self.message();handle_message(self.agent,message);handle_message(self.agent,message)
         self.assertEqual(len(self.rows()),1);details=self.rows()[0]['details']

@@ -4,6 +4,7 @@ import re
 
 PURPOSE = 'guarddesk-software-msi-v1'
 CAPABILITY = 'software_msi_v1'
+MAX_VERSION_CHARS = 128  # resource bound, not a claim about Installer support
 GIB = 1024 ** 3
 MAX_PACKAGE = 64 * GIB  # wire/worker ceiling; center default is configurable 8 GiB
 LIBRARY_LIMIT = 32 * GIB
@@ -25,8 +26,12 @@ def product_code(value):
 
 
 def version(value):
-    if not isinstance(value, str) or not re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,5}', value):
-        raise ValueError('MSI requires a three-part ProductVersion')
+    # Validate the Installer's three-field numeric core and preserve the full
+    # authored identity. Bound the entire string instead of adding a new field
+    # count limit for each vendor. Extra fields do not prove installability and
+    # must never be truncated or normalized for installed-version detection.
+    if not isinstance(value, str) or not 1 <= len(value) <= MAX_VERSION_CHARS or not re.fullmatch(r'[0-9]+(?:\.[0-9]+){2,}', value):
+        raise ValueError('MSI ProductVersion requires 3 or more numeric fields (maximum 128 characters)')
     parts = tuple(map(int, value.split('.')))
     if any(a > b for a, b in zip(parts, (255, 255, 65535))):
         raise ValueError('MSI ProductVersion out of range')

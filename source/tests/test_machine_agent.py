@@ -270,6 +270,23 @@ class SupervisorTest(MachineFixture):
         self.tick(supervisor)
         self.assertIs(supervisor.children[1],child);child.close.assert_not_called()
 
+    def test_security_hold_write_failure_stops_supervisor_without_retry(self):
+        supervisor,platform=self.supervisor()
+        error=OSError('owned AV rejection');error.winerror=225;platform.launch.side_effect=error
+        with patch('guarddesk.service_recovery.persist_security_hold',side_effect=PermissionError('owned write refusal')):
+            self.tick(supervisor)
+        self.assertTrue(supervisor.stop.is_set())
+        self.assertEqual(supervisor.fatal_error['operation'],'persist_security_hold')
+        before=platform.launch.call_count;self.tick(supervisor)
+        self.assertEqual(platform.launch.call_count,before)
+
+    def test_security_hold_is_persisted_before_future_helper_retry(self):
+        supervisor,platform=self.supervisor()
+        error=OSError('owned AV rejection');error.winerror=226;platform.launch.side_effect=error
+        with patch('guarddesk.service_recovery.persist_security_hold',return_value=True) as persist:
+            self.tick(supervisor);persist.assert_called_once_with(self.agent,226)
+        self.assertTrue(supervisor.launch_blocked_antimalware)
+
     def test_access_denied_remains_bounded_retry_not_antimalware_latch(self):
         supervisor,platform=self.supervisor()
         error=OSError('owned access denied');error.winerror=5;platform.launch.side_effect=error

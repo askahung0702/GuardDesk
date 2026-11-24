@@ -16,7 +16,7 @@ def route(store,db,device,path,body):
     did=device['id'];now=time.time()
     if path.endswith('/observed'):
         if body:raise ManagementError(400,'觀察查詢不接受欄位')
-        presence=db.execute("SELECT broker_version,received FROM update_presence WHERE device_id=? AND role='native'",(did,)).fetchone()
+        presence=db.execute('SELECT version AS broker_version,received FROM update_broker_presence WHERE device_id=?',(did,)).fetchone()
         return {'presence':dict(presence) if presence else None}
     if path.endswith('/complete'):
         if set(body)!={'id','state'} or body['state'] not in ('healthy','rolled_back','failed') or not isinstance(body['id'],str) or not re.fullmatch('[0-9a-f]{32}',body['id']):raise ManagementError(400,'更新器維護結果不正確')
@@ -39,7 +39,8 @@ def route(store,db,device,path,body):
     if row['status']!='completed':return {'authorization':None,'waiting_for':'main_component'}
     native=db.execute("SELECT state,version FROM update_status WHERE job_id=? AND role='native'",(row['id'],)).fetchone()
     if not native or native['state']!='healthy' or native['version']!=body['version']:raise ManagementError(409,'先完成原生元件健康確認')
-    if db.execute("SELECT 1 FROM update_jobs WHERE device_id=? AND status='pending' AND id<>? AND expires>?",(did,row['id'],now)).fetchone():return {'authorization':None,'waiting_for':'another_update'}
+    from .updates import switching
+    if switching(db,did,exclude=row['id']) or db.execute("SELECT 1 FROM update_jobs WHERE device_id=? AND status='pending' AND id<>? AND expires>?",(did,row['id'],now)).fetchone():return {'authorization':None,'waiting_for':'another_update'}
     if db.execute("SELECT 1 FROM endpoint_removals WHERE device_id=? AND status IN ('queued','running','failed')",(did,)).fetchone():return {'authorization':None,'waiting_for':'uninstall'}
     if db.execute("SELECT 1 FROM remote_sessions WHERE device_id=? AND status='active' AND expires>?",(did,now)).fetchone():return {'authorization':None,'waiting_for':'remote_assistance'}
     prior=db.execute('SELECT * FROM updater_refresh WHERE device_id=?',(did,)).fetchone()

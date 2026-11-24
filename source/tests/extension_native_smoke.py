@@ -69,22 +69,25 @@ def main():
                         time.sleep(.1)
                     else:raise AssertionError('Native host startup did not complete: '+json.dumps(status))
                     page=context.new_page();page.goto(f'http://127.0.0.1:{upstream.server_port}/visited?offline=1')
-                    deadline=time.monotonic()+20
-                    rows=[]
-                    while time.monotonic()<deadline:
-                        with agent.db() as db:rows=[json.loads(r[0]) for r in db.execute('SELECT payload FROM outbox')]
-                        if any('/visited?offline=1' in row['details'].get('url','') for row in rows):break
-                        time.sleep(.15)
-                    if not any(row['kind']=='web.navigation' and '/visited?offline=1' in row['details'].get('url','') for row in rows):
-                        diagnostic=worker.evaluate('async()=>await chrome.storage.local.get(null)')
-                        raise AssertionError('Native navigation was not persisted: '+json.dumps(diagnostic))
+                    # Full worker must not create browsing copies. Explicitly
+                    # exercise legacy Host ACK and retained upload transport;
+                    # this synthetic metadata does not prove real file upload.
+                    for kind in ('navigation','page_title'):
+                        result=worker.evaluate('(message)=>native(message)',{'type':kind,'url':'https://owned.invalid/page'})
+                        assert result.get('discarded') and 'recorded' not in result,result
+                    result=worker.evaluate('(message)=>native(message)',{'type':'web_upload','phase':'started','upload_id':'owned-browser-flow','method':'POST','files':[{'path':r'C:\Owned\report.pdf'}],'url':'https://owned.invalid/upload','event_id':'browser-owned-upload'})
+                    assert result.get('recorded'),result
+                    worker.evaluate('async()=>{await serial;await flush();}')
+                    with agent.db() as db:rows=[json.loads(r[0]) for r in db.execute('SELECT payload FROM outbox')]
+                    assert not any(row['kind'] in ('web.navigation','web.page_title') for row in rows),rows
+                    assert len(rows)==1 and rows[0]['kind']=='web.upload_started',rows
                     assert Agent(config).queue_status()['pending']>0
                     from guarddesk.document_audit import browser_status
                     observed=browser_status(agent)
                     assert observed['status']=='connected_limited',observed
-                    assert observed['browsers'][0]['extension_version']=='0.4.0',observed
+                    assert observed['browsers'][0]['extension_version']==json.loads((root/'browser-extension/manifest.json').read_text(encoding='utf-8'))['version'],observed
                 finally:context.close()
-            report={'passed':True,'version':__version__,'exe_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),'checks':['isolated Chromium loads unpacked extension','explicit test-account registration preserves config/proxy bytes','stable extension id matches native allowlist','real browser navigation reaches frozen native host','extension version handshake persisted with bounded readiness','URL and time persisted while server is offline','outbox survives Agent reopen','original Chrome/Edge/GuardDesk HKCU values restored in finally'],'extension_id':extension_id(),'limits':['Explicit test-account registration; automatic installed-only scope guard tested separately','Owned Chromium profile, not managed corporate extension installation']}
+            report={'passed':True,'version':__version__,'exe_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),'checks':['isolated Chromium loads unpacked extension','explicit test-account registration preserves config/proxy bytes','stable extension id matches native allowlist','real browser navigation creates no extension browsing copy; legacy Native Host messages are discarded','extension version handshake persisted with bounded readiness','synthetic upload metadata reaches frozen Host and persists offline','outbox survives Agent reopen','original Chrome/Edge/GuardDesk HKCU values restored in finally'],'extension_id':extension_id(),'limits':['Explicit test-account registration; automatic installed-only scope guard tested separately','Owned Chromium profile, not managed corporate extension installation','Upload Native transport uses synthetic metadata, not evidence of an actual file upload','Saved-history collection is tested separately; custom profile is outside automatic discovery']}
     finally:
         upstream.shutdown();upstream.server_close()
         for (name,value),(existed,original) in zip(keys,previous):

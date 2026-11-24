@@ -1,0 +1,41 @@
+// Real editor serialization/rendering helpers, no browser/center/network.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const folder=path.join(__dirname,'../guarddesk/static');
+const app=fs.readFileSync(path.join(folder,'app.js'),'utf8');
+const prefix='@guarddesk:filename-prefix:v1:',pattern='C:\\Users\\{user}\\.claude.json.tmp.*';
+const ctx=vm.createContext({});
+vm.runInContext(app.slice(0,app.indexOf('const $ =')),ctx);
+function input(value,literals=[]){
+  ctx.ownedForm={querySelector:()=>({dataset:{literalRules:JSON.stringify(literals)}})};
+  ctx.ownedData={get:()=>value};
+  return Array.from(vm.runInContext('fileExclusionLines(ownedForm,ownedData)',ctx));
+}
+assert.deepEqual(input(pattern),[prefix+pattern]);
+const tmpRule='@guarddesk:tmp-files:v1';
+assert.deepEqual(input('  *.TMP  \n'+pattern),[tmpRule,prefix+pattern]);
+assert.deepEqual(input('*.tmp',['*.tmp']),['*.tmp']);
+assert.equal(vm.runInContext('fileExclusionText(tmpFileRule)',ctx),'*.tmp');
+assert.deepEqual(input(' C:\\Fixed\n'+pattern+'\n'),['C:\\Fixed',prefix+pattern]);
+assert.deepEqual(input('C:\\old*',['C:\\old*']),['C:\\old*']);
+assert.deepEqual(input('C:\\old*'),[prefix+'C:\\old*']);
+ctx.ownedRule=prefix+pattern;assert.equal(vm.runInContext('fileExclusionText(ownedRule)',ctx),pattern);
+const filesLine=app.split('\n').find(line=>line.trim().startsWith('files: `'));
+ctx.p={file_audit:{enabled:true,scope:'all_local',exclude_paths:[prefix+pattern,'C:\\old*']}};
+ctx.developmentRule='@guarddesk:development-cache:v1';ctx.hiddenRule='@guarddesk:hidden-files:v1';
+ctx.esc=value=>String(value).replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;');
+const html=vm.runInContext(filesLine.trim().slice(7,-1),ctx);
+assert.equal((html.match(/name="file_excludes"/g)||[]).length,1);
+assert.ok(html.includes(pattern));assert.ok(html.includes('data-literal-rules="[&quot;C:'));
+assert.ok(!html.includes(prefix));assert.ok(html.includes('0.4.113'));
+vm.runInContext(fs.readFileSync(path.join(folder,'software_ui.js'),'utf8'),ctx);
+ctx.ownedJob={error:'INSTALL_PREPARATION_DETECT_PRODUCT_MSI_API_ERROR',exit_code:1610};
+assert.ok(vm.runInContext('softwareJobDiagnostic(ownedJob)',ctx).includes('MSI API 1610'));
+ctx.ownedJob={error:'INSTALL_PREPARATION_DOWNLOAD_WIN32_ERROR',exit_code:5};
+assert.ok(vm.runInContext('softwareJobDiagnostic(ownedJob)',ctx).includes('Windows 5'));
+ctx.ownedJob={error:'INSTALL_PREPARATION_VERIFY_PUBLISHER_AUTHENTICODE_ERROR',exit_code:0x80092013};
+assert.ok(vm.runInContext('softwareJobDiagnostic(ownedJob)',ctx).includes('簽章驗證 '+0x80092013));
+ctx.ownedJob={error:'INSTALL_PREPARATION_API_OR_IO_ERROR',exit_code:null};
+assert.ok(vm.runInContext('softwareJobDiagnostic(ownedJob)',ctx).includes('未保留失敗步驟'));
+ctx.ownedJob={error:'',exit_code:3010};
+assert.ok(vm.runInContext('softwareJobDiagnostic(ownedJob)',ctx).includes('安裝程式回傳碼 3010'));
+console.log('PASS filename-prefix editor and MSI diagnostic display assertions');

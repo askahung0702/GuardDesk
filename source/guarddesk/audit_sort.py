@@ -40,10 +40,10 @@ def keys(raw):
         return v if isinstance(v,str) else ''
     # New 0.4.56 candidates have no native path. Their displayed filename is
     # also their document sort key; preexisting event projections stay intact.
-    path=text('source_path','path','file_name','url') if d.get('correlation')=='page_body_metadata_candidate' else text('source_path','path','url')
+    path=text('source_path','path','file_name','url','domain') if d.get('correlation')=='page_body_metadata_candidate' else text('source_path','path','url','domain')
     destination=text('site_origin') if d.get('evidence') in ('receiver_accepted_drop','browser_file_attached') else text('destination_path','title')
     return (text('process'),path,destination,
-            text('user'),text('browser'),text('title'),text('url'),text('source_path','file_name'))
+            text('user'),text('browser'),text('title'),text('url','domain'),text('source_path','file_name'))
 
 @serialized
 def index_batch(store,stop=None,*,cooperative=False):

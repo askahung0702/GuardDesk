@@ -9,6 +9,9 @@ import sys
 import unittest
 from PyInstaller.archive.readers import CArchiveReader
 
+from tools.offline_build_guard import guarded_main
+
+@guarded_main
 def main():
     p=argparse.ArgumentParser();p.add_argument('--product',type=Path,required=True);p.add_argument('--report',type=Path,required=True);a=p.parse_args()
     product=a.product.resolve(strict=True);report=a.report.absolute();workspace=Path(__file__).resolve().parents[3]

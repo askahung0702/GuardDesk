@@ -51,7 +51,8 @@ class NativeHandoffRuntime:
         source has no worker. A stuck generation cannot spawn more generations.
         """
         from .decommission import saved
-        enabled = (policy['body']['browser_audit'] and policy['body']['file_audit']['enabled']
+        from .audit_collection import uploads_enabled
+        enabled = (uploads_enabled(policy['body']) and policy['body']['file_audit']['enabled']
                    and (self._factory is None or not saved(self.agent)))
         self._enabled = enabled
         if self._closed:

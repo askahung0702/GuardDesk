@@ -132,8 +132,16 @@ def prepare(bootstrap, session, root=None):
     with agent.db() as db:
         # Preserve an existing policy/cursors; on a new B login seed the last
         # protected policy even offline, before the first center heartbeat.
-        if not db.execute("SELECT 1 FROM state WHERE key='policy'").fetchone():
-            db.execute("INSERT INTO state VALUES ('policy',?)",(json.dumps(bootstrap['policy']),))
+        if bootstrap['policy'].get('heartbeat_only') or not db.execute("SELECT 1 FROM state WHERE key='policy'").fetchone():
+            packet = bootstrap['policy']
+            if 'collection_options' in packet:
+                # A machine seed has no authoritative individual assignment on a
+                # first login. Wait for the user's first heartbeat for web data.
+                packet = {**packet, 'body': {**packet['body'], 'browser_audit': False},
+                          'collection_options': {**packet['collection_options'],
+                                                 'browser_audit': False, 'browser_upload_mode': 'disabled'}}
+            db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)",(json.dumps(packet),))
+            agent.set_idle_revision(packet.get('heartbeat_only',0),db)
     return target
 
 

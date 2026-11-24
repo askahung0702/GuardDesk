@@ -99,7 +99,7 @@ def operator_session(server,db,user,sid):
 
 def update_busy(db,did,now):
     from .update_progress import ACTIVE
-    return bool(db.execute(f"SELECT 1 FROM update_jobs j JOIN update_status s ON s.job_id=j.id WHERE j.device_id=? AND j.status='pending' AND j.expires>? AND s.state IN {ACTIVE} LIMIT 1",(did,now)).fetchone()
+    return bool(db.execute(f"SELECT 1 FROM update_jobs j JOIN update_status s ON s.job_id=j.id WHERE j.device_id=? AND j.status='pending' AND (j.expires>? OR s.state IN ('applying','restarting')) AND s.state IN {ACTIVE} LIMIT 1",(did,now)).fetchone()
         or db.execute("SELECT 1 FROM updater_refresh WHERE device_id=? AND state='active' AND expires>?",(did,now)).fetchone())
 
 
@@ -158,7 +158,7 @@ def route(server,db,user,method,path,body,query):
         require(db.execute('SELECT 1 FROM devices WHERE id=? AND revoked=0',(did,)).fetchone(),'端點不存在或已撤銷',404)
         require(not update_busy(db,did,now),'端點正在更新，請待更新完成後再要求遠端協助',409)
         removal=db.execute('SELECT status,expires FROM endpoint_removals WHERE device_id=? ORDER BY created DESC LIMIT 1',(did,)).fetchone()
-        require(not removal or removal['status']=='expired' or (removal['status']=='queued' and removal['expires']<now),'端點正在移除或已移除，不能發起遠端協助',409)
+        require(not removal or removal['status'] in ('expired','closed') or (removal['status']=='queued' and removal['expires']<now),'端點正在移除或已移除，不能發起遠端協助',409)
         require(mode in ('view','control'),'遠端模式不正確',400)
         grant=effective_grant(db,user['username'],did,now)
         require(grant and (mode=='view' or grant['can_control']))

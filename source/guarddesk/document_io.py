@@ -118,6 +118,9 @@ class NativeTrace:
         if not hasattr(self.api,'gd_trace_lifecycle_version'):raise OSError('Native trace open-lifetime capability missing; upgrade complete native component')
         self.api.gd_trace_lifecycle_version.restype=ctypes.c_uint32
         if self.api.gd_trace_lifecycle_version()!=1:raise OSError('Unsupported native open-lifetime version')
+        if not hasattr(self.api,'gd_trace_write_activity_version'):raise OSError('Native file-write capability missing; upgrade complete native component')
+        self.api.gd_trace_write_activity_version.restype=ctypes.c_uint32
+        if self.api.gd_trace_write_activity_version()!=3:raise OSError('Unsupported native file-write version; upgrade complete native component')
         if not hasattr(self.api,'gd_trace_aux_stats'):raise OSError('Native trace completed-open capability missing; upgrade complete native component')
         self.api.gd_trace_aux_stats.argtypes=[ctypes.POINTER(ctypes.c_uint64),ctypes.c_uint32];self.api.gd_trace_aux_stats.restype=ctypes.c_uint32
         self.api.gd_trace_start.argtypes=[ctypes.POINTER(ctypes.c_wchar_p),ctypes.c_uint32];self.api.gd_trace_start.restype=ctypes.c_uint32
@@ -187,8 +190,12 @@ class NativeTrace:
             for device,drive in self.mappings:
                 if path.casefold().startswith(device.casefold()+'\\'):path=drive+path[len(device):];break
             if not ntpath.splitdrive(path)[0]:continue
-            if record.op not in (64,66,67,68):continue
-            events.append({'path':path,'pid':record.pid,'tid':record.tid,'open_id':record.open_id,'offset':record.offset,'bytes':record.bytes,'status':record.status,'op':{64:'open',66:'close',67:'read',68:'write'}[record.op],'non_directory_confirmed':record.op==64 and record.bytes==1,'occurred':record.time/10000000-11644473600})
+            non_directory=bool(record.op&0x20000)
+            op=record.op&~0x20000
+            if op not in (64,66,67,68,69,65537):continue
+            item={'path':path,'pid':record.pid,'tid':record.tid,'open_id':record.open_id,'offset':record.offset,'bytes':record.bytes if op!=69 else 0,'status':record.status,'op':{64:'open',66:'close',67:'read',68:'write',69:'set_end_of_file',65537:'overwrite'}[op],'non_directory_confirmed':non_directory or (op==64 and record.bytes==1),'occurred':record.time/10000000-11644473600}
+            if op==69:item['file_size']=record.bytes
+            events.append(item)
         return events
 
     def stop(self):

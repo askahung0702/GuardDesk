@@ -60,10 +60,11 @@ def readiness(device,policy,now=None,documents=None):
     elif not read:read={'status':'worker_not_reported' if not ext else 'stale'}
     collectors=(device.get('inventory') or {}).get('collectors',{})
     upload=collectors.get('document_upload') if isinstance(collectors,dict) else None
-    if not policy['browser_audit']:upload={'status':'disabled'}
+    from .audit_collection import uploads_enabled
+    if not uploads_enabled(policy):upload={'status':'disabled'}
     elif not isinstance(upload,dict):upload={'status':'agent_not_reported'}
     elif not fresh_timestamp(now,upload.get('checked_at',0)):upload={**upload,'status':'stale'}
-    if policy['browser_audit'] and isinstance(collectors,dict) and isinstance(collectors.get('browser_native_host'),dict) and collectors['browser_native_host'].get('status')=='failed':
+    if uploads_enabled(policy) and isinstance(collectors,dict) and isinstance(collectors.get('browser_native_host'),dict) and collectors['browser_native_host'].get('status')=='failed':
         upload={**upload,'status':'host_registration_failed'}
     provisioning=ext.get('document_provisioning') if fresh else None
     native_read=ext.get('document_native_read') if fresh else None
@@ -75,7 +76,7 @@ def readiness(device,policy,now=None,documents=None):
     if not policy['file_audit']['enabled']:copy={'status':'disabled'}
     elif not isinstance(copy,dict):copy={'status':'worker_not_reported','coverage':'directory_notifications_do_not_prove_copy'}
     handoff=collectors.get('native_file_handoff') if isinstance(collectors,dict) else None
-    if not policy['browser_audit'] or not policy['file_audit']['enabled']:handoff={'status':'disabled'}
+    if not uploads_enabled(policy) or not policy['file_audit']['enabled']:handoff={'status':'disabled'}
     elif not isinstance(handoff,dict):handoff={'status':'agent_not_reported'}
     elif not fresh_timestamp(now,handoff.get('checked_at',0)):handoff={**handoff,'status':'stale'}
     result={'read':read,'copy':copy,'upload':upload,'handoff':handoff,'checked_at':now}

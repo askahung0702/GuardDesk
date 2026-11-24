@@ -21,8 +21,15 @@ def api():
     return dll
 
 
+class MsiAPIError(OSError):
+    """MSI APIs return a status directly; it is not GetLastError/Win32."""
+    def __init__(self,code):
+        super().__init__(code,'Windows Installer metadata API failed')
+        self.msi_code=code
+
+
 def check(code):
-    if code:raise OSError(code,'Windows Installer metadata API failed')
+    if code:raise MsiAPIError(code)
 
 
 @contextmanager

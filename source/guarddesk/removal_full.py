@@ -19,10 +19,12 @@ def get(db, job_id):
     return dict(row) if row else None
 
 def public(row):
-    return {k: row[k] for k in ('phase', 'updated', 'error_code', 'winerror', 'helper_cleanup')}
+    result={k: row[k] for k in ('phase', 'updated', 'error_code', 'winerror', 'helper_cleanup')}
+    result['keep_process_audit']=bool(row['keep_process_audit'])
+    return result
 
-def create(db, jid, did):
-    db.execute('INSERT INTO endpoint_file_removals(job_id,device_id,updated) VALUES(?,?,?)', (jid,did,time.time()))
+def create(db, jid, did, keep_process_audit=False):
+    db.execute('INSERT INTO endpoint_file_removals(job_id,device_id,updated,keep_process_audit) VALUES(?,?,?,?)', (jid,did,time.time(),keep_process_audit))
 
 def secret_hash(secret):
     if not isinstance(secret,str) or not re.fullmatch('[0-9a-f]{64}',secret):
@@ -30,12 +32,14 @@ def secret_hash(secret):
     return hashlib.sha256(secret.encode('ascii')).hexdigest()
 
 def prepare(db, device, body):
-    if (not isinstance(body,dict) or set(body) != {'job_id','secret'} or not isinstance(body.get('job_id'),str)
+    if (not isinstance(body,dict) or set(body)-{'job_id','secret','keep_process_audit'} or 'secret' not in body or not isinstance(body.get('job_id'),str)
         or not re.fullmatch('[0-9a-f]{32}',body['job_id'])):raise ManagementError(400,'移除準備欄位不正確')
     row=get(db,body['job_id'])
     job=db.execute('SELECT * FROM endpoint_removals WHERE id=? AND device_id=?',(body['job_id'],device['id'])).fetchone()
     if not row or not job or row['device_id']!=device['id'] or job['status'] in ('expired','completed'):
         raise ManagementError(409,'完整移除工作不可執行')
+    if body.get('keep_process_audit',False) is not bool(row['keep_process_audit']):
+        raise ManagementError(409,'端點未確認此工作指定的程序稽核處理方式')
     digest=secret_hash(body['secret'])
     if row['token_hash'] and not hmac.compare_digest(row['token_hash'],digest):raise ManagementError(409,'移除工作已由另一元件接手')
     if row['phase']=='queued' and job['expires']<=time.time():raise ManagementError(409,'尚未執行的移除工作已過期')
@@ -44,17 +48,19 @@ def prepare(db, device, body):
         db.execute("UPDATE endpoint_file_removals SET token_hash=?,phase='prepared',updated=?,report_until=? WHERE job_id=?",(digest,time.time(),time.time()+86400,job['id']))
         db.execute("UPDATE endpoint_removals SET status='running',native='working',error='' WHERE id=?",(job['id'],))
         Store.event(db,device['id'],'device.full_removal_prepared','warning',{'job_id':job['id'],'backup':False})
-    return {'prepared':True}
+    return {'prepared':True, 'keep_process_audit':bool(row['keep_process_audit'])}
 
 def preparation_error(db,device,body):
-    if (not isinstance(body,dict) or set(body)!={'job_id','winerror'} or not isinstance(body['job_id'],str)
+    if (not isinstance(body,dict) or set(body) not in ({'job_id','winerror'},{'job_id','winerror','error_code'}) or not isinstance(body['job_id'],str)
+        or body.get('error_code','PREPARATION_FAILED') not in ('PREPARATION_FAILED','PROCESS_AUDIT_CONFLICT')
         or (body['winerror'] is not None and (type(body['winerror']) is not int or not 0<=body['winerror']<=0xffffffff))):raise ManagementError(400,'移除準備錯誤格式不正確')
     row=get(db,body['job_id'])
     if not row or row['device_id']!=device['id']:raise ManagementError(404,'移除工作不符')
     if row['phase'] in ('deleting','complete','review_required'):return {'recorded':False}
-    db.execute("UPDATE endpoint_file_removals SET phase='review_required',error_code='PREPARATION_FAILED',winerror=?,updated=? WHERE job_id=?",(body['winerror'],time.time(),row['job_id']))
-    db.execute("UPDATE endpoint_removals SET status='failed',native='failed',error='PREPARATION_FAILED' WHERE id=?",(row['job_id'],))
-    Store.event(db,device['id'],'device.full_removal_prepare_failed','warning',{'job_id':row['job_id'],'winerror':body['winerror']})
+    code=body.get('error_code','PREPARATION_FAILED')
+    db.execute("UPDATE endpoint_file_removals SET phase='review_required',error_code=?,winerror=?,updated=? WHERE job_id=?",(code,body['winerror'],time.time(),row['job_id']))
+    db.execute("UPDATE endpoint_removals SET status='failed',native='failed',error=? WHERE id=?",(code,row['job_id']))
+    Store.event(db,device['id'],'device.full_removal_prepare_failed','warning',{'job_id':row['job_id'],'winerror':body['winerror'],'error_code':code})
     return {'recorded':True}
 
 def result(db, secret, body):
@@ -71,6 +77,8 @@ def result(db, secret, body):
         device=db.execute('SELECT revoked FROM devices WHERE id=?',(row['device_id'],)).fetchone()
         # Reporting may continue after revoke, but a new destructive claim may not.
         allowed=bool(device and not device['revoked'] and row['phase']=='prepared' and job['status']=='running')
+        if allowed and not row['authorization_issued']:
+            db.execute('UPDATE endpoint_file_removals SET authorization_issued=1 WHERE job_id=?',(row['job_id'],))
         return {'authorized':allowed,'phase':row['phase']}
     if phase not in ('deleting','complete','review_required'):raise ManagementError(400,'清理階段不正確')
     error=body.get('error_code','');winerror=body.get('winerror');helper=body.get('helper_cleanup','not_scheduled')

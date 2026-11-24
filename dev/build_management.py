@@ -42,6 +42,17 @@ def passing(path):
     if body.get('passed') is not True:raise ValueError('Gate did not pass: '+str(path))
     return body
 
+def legacy_recovery_input(root,artifact_root):
+    # The pre-112 adapter refused *all* operations on a Disabled service.
+    # That contract belongs to 111 even after a newer baseline is accepted.
+    record=json.loads((root/'provenance/release-baseline-0.4.111-20261116.json').read_text(encoding='utf-8'))
+    if (record['version'],record['revision'])!=('0.4.111','001'):
+        raise ValueError('Expected the sealed 111/001 recovery fixture')
+    artifact=record['artifact']
+    path=contained(artifact_root,artifact_root/artifact['path'])
+    if digest(path)!=artifact['sha256']:raise ValueError('Sealed 111 recovery fixture differs')
+    return path,artifact['sha256']
+
 def prerequisites(root,args):
     target,baseline=output_path(root,args.version,args.revision);python(root)
     lock=json.loads((root/'dependencies/management-package.lock.json').read_text())
@@ -49,6 +60,7 @@ def prerequisites(root,args):
     restore(root,args.artifact_root or root,json.loads((root/'dependencies/release-inputs.lock.json').read_text()),False)
     artifact=Path(args.artifact_root or root)/baseline['artifact']['path']
     if digest(artifact)!=baseline['artifact']['sha256']:raise ValueError('Accepted baseline package differs')
+    legacy_recovery_input(root,args.artifact_root or root)
     if args.reuse_native_from:
         if getattr(args,'webrtc_source',None) is not None:raise ValueError('Choose native cache or WebRTC source rebuild, not both')
         prepare(root,root/'source',args.reuse_native_from,json.loads((root/'dependencies/native-cache.lock.json').read_text()),False)
@@ -137,6 +149,12 @@ def execute(root,args):
         pipeline.command('runtime-startup',[exe,'-X','utf8',Path(build['source'])/'tools/probe_remote_runtime_startup.py',
             '--product',product,'--report',run/'runtime-startup.json'])
         passing(run/'runtime-startup.json')
+        legacy_package,legacy_hash=legacy_recovery_input(root,args.artifact_root or root)
+        report['recovery_legacy_input']={'version':'0.4.111','revision':'001','sha256':legacy_hash}
+        pipeline.command('recovery-maintenance',[exe,'-X','utf8',Path(build['source'])/'tools/probe_recovery_maintenance.py',
+            '--product',product,'--baseline-package',legacy_package,'--baseline-sha256',legacy_hash,
+            '--report',run/'recovery-maintenance.json'])
+        passing(run/'recovery-maintenance.json')
         print('Stage: complete ZIP',flush=True)
         candidate,proof=package(root,source,run,receipt,args.version,args.revision,env)
         pipeline.command('actual-zip-acl-cmd',[exe,'-X','utf8',Path(build['source'])/'tools/probe_management_source_setup.py',

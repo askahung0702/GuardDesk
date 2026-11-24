@@ -9,8 +9,8 @@ from .performance import background_work
 from .endpoint_purge import serialized
 
 TAIPEI=dt.timezone(dt.timedelta(hours=8))
-ACTIONS={'file.created':'created','file.modified':'modified','file.deleted':'deleted','file.moved':'moved','file.renamed':'renamed','file.opened':'opened'}
-MUTATIONS=('created','modified','deleted','moved','renamed')
+ACTIONS={'file.created':'created','file.modified':'modified','file.written':'written','file.saved':'written','file.deleted':'deleted','file.moved':'moved','file.renamed':'renamed','file.opened':'opened'}
+MUTATIONS=('created','modified','written','deleted','moved','renamed')
 
 
 class AuditError(Exception):

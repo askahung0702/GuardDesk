@@ -5,6 +5,7 @@ uses a job-only callback secret; no endpoint credential is copied. Interrupted
 deletion is reported for review, never automatically replayed after reboot.
 """
 import ctypes
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -63,19 +64,31 @@ def require_system():
         if not adv.IsWellKnownSid(ctypes.cast(data,ctypes.POINTER(w.LPVOID))[0],22):raise PermissionError('REMOVAL_REQUIRES_SYSTEM')
     finally:kernel.CloseHandle(token)
 
+@contextmanager
+def preparation_step(name):
+    """Attach a fixed local diagnostic without changing the original exception."""
+    try:
+        yield
+    except (OSError, ValueError) as exc:
+        exc.removal_step = name
+        raise
+
+
 def copy_program(source,target,files):
     from .native_installer import bounded_hash
     from .update_packages import plain,MAX_TOTAL
     from tools.endpoint_fresh_cleanup import io_path
     total=0
-    for name,digest in sorted(files.items()):
-        origin=plain(source/name);destination=plain(target/name)
-        destination.parent.mkdir(parents=True,exist_ok=True)
-        with open(io_path(destination),'xb') as output:
-            actual,size=bounded_hash(origin,MAX_TOTAL-total,output)
-        total+=size
-        if actual!=digest:raise OSError('REMOVAL_RUNTIME_CHANGED')
-    protected_tree(target)
+    with preparation_step('copy_and_verify_program'):
+        for name,digest in sorted(files.items()):
+            origin=plain(source/name);destination=plain(target/name)
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            with open(io_path(destination),'xb') as output:
+                actual,size=bounded_hash(origin,MAX_TOTAL-total,output)
+            total+=size
+            if actual!=digest:raise OSError('REMOVAL_RUNTIME_CHANGED')
+    with preparation_step('verify_staged_permissions'):
+        protected_tree(target)
 
 def check_identity(state,config,marker,version,ca_hash):
     if (not marker or config.get('device_id')!=state['device_id'] or config.get('server')!=state['server']
@@ -105,30 +118,49 @@ def prepare(worker,job):
             if state.get('device_id')!=did or state.get('job_id')!=jid:raise PermissionError('REMOVAL_HANDOFF_IDENTITY_MISMATCH')
             if state.get('launched'):return
         else:
-            files,_=source_files(source)
-            program=root/'program';io.protect(program,create=True)
-            if any(program.iterdir()):raise OSError('INCOMPLETE_REMOVAL_STAGING_PRESERVED')
+            with preparation_step('verify_installed_manifest'):
+                files,_=source_files(source)
+            program=root/'program'
+            with preparation_step('open_staging_directory'):
+                io.protect(program,create=True)
+                populated=any(program.iterdir())
+            if populated:
+                with preparation_step('existing_staging_without_handoff'):
+                    raise OSError('INCOMPLETE_REMOVAL_STAGING_PRESERVED')
             copy_program(source,program,files)
             ca=agent.config.get('ca')
             if ca:
-                ca_path=Path(ca);protected_tree(ca_path,recursive=False)
-                with ca_path.open('rb') as f:raw=f.read(65537)
-                if len(raw)>65536:raise ValueError('REMOVAL_CA_TOO_LARGE')
-                io.write(root/'center-ca.pem',raw)
+                ca_path=Path(ca)
+                with preparation_step('verify_ca_permissions'):
+                    protected_tree(ca_path,recursive=False)
+                with preparation_step('read_ca'):
+                    with ca_path.open('rb') as f:raw=f.read(65537)
+                    if len(raw)>65536:raise ValueError('REMOVAL_CA_TOO_LARGE')
+                with preparation_step('write_staged_ca'):
+                    io.write(root/'center-ca.pem',raw)
             from urllib.parse import urlsplit
-            url=agent.config['server'];parts=urlsplit(url)
-            if parts.scheme!='https' or not parts.hostname or parts.username or parts.password:raise ValueError('REMOVAL_HTTPS_REQUIRED')
-            state={'format':1,'job_id':jid,'device_id':did,'server':url,'secret':secrets.token_hex(32),
-                   'ca':bool(ca),'restored':False,'launched':False,'phase':'prepared'}
-            io.write(state_path,encode(state))
+            with preparation_step('validate_center_url'):
+                url=agent.config['server'];parts=urlsplit(url)
+                if parts.scheme!='https' or not parts.hostname or parts.username or parts.password:raise ValueError('REMOVAL_HTTPS_REQUIRED')
+            with preparation_step('write_handoff'):
+                state={'format':1,'job_id':jid,'device_id':did,'server':url,'secret':secrets.token_hex(32),
+                       'ca':bool(ca),'restored':False,'launched':False,'phase':'prepared'}
+                io.write(state_path,encode(state))
         # The center acknowledges the job-only secret before any destructive work.
-        agent.call('/api/agent/uninstall/prepare-files',{'job_id':jid,'secret':state['secret']})
+        keep_audit=job.get('cleanup',{}).get('keep_process_audit') is True
+        handshake={'job_id':jid,'secret':state['secret']}
+        if keep_audit:
+            handshake['keep_process_audit']=True
+        prepared=agent.call('/api/agent/uninstall/prepare-files',handshake)
+        if keep_audit and prepared.get('keep_process_audit') is not True:
+            raise ValueError('PROCESS_AUDIT_CHOICE_NOT_CONFIRMED')
         try:
             if not state['restored']:
                 companion=getattr(worker,'extended_companion',None)
                 if companion:companion.close()
                 from .application_control import ExtendedWorker
-                outcome=ExtendedWorker(agent).restore();usb=worker.restore()
+                outcome=ExtendedWorker(agent).restore(keep_process_audit=keep_audit)
+                usb=worker.restore()
                 for result in (outcome,usb):
                     if isinstance(result,dict) and result.get('status') in ('failed','conflict','partial_or_failed'):raise OSError('CONTROL_RESTORE_INCOMPLETE')
                 state['restored']=True;io.write(state_path,encode(state))
@@ -140,7 +172,12 @@ def prepare(worker,job):
         except (OSError,ValueError) as exc:
             # Keep the exact local error; center receives only bounded codes.
             io.write(root/'prepare-error.json',encode({'type':type(exc).__name__,'winerror':getattr(exc,'winerror',None),'message':str(exc)[:700]}))
-            call(state,root,{'phase':'review_required','error_code':'PREPARE_OR_RESTORE_FAILED','winerror':getattr(exc,'winerror',None)})
+            from .process_audit import ProcessAuditConflict
+            code='PROCESS_AUDIT_CONFLICT' if isinstance(exc,ProcessAuditConflict) else 'PREPARE_OR_RESTORE_FAILED'
+            try:
+                call(state,root,{'phase':'review_required','error_code':code,'winerror':getattr(exc,'winerror',None)})
+            except (ValueError,OSError) as report_error:
+                raise exc from report_error
             raise
     # The child takes the SAME installer exclusion. Release it before starting
     # the scheduled process, rather than racing its frozen-runtime startup.

@@ -127,10 +127,28 @@ def remove_task(agent):
     if command('/Delete','/TN',name,'/F').returncode:raise OSError('Cannot remove verified GuardDesk scheduled task')
 
 
+def record_prepare_error(agent, job_id, exc):
+    from .protected_files import ProtectedFiles, encode, read_json
+    path = agent.config_path.parent / 'removal-prepare-error.json'
+    record = {'job_id': job_id, 'error_type': type(exc).__name__, 'winerror': getattr(exc, 'winerror', None)}
+    step = getattr(exc, 'removal_step', None)
+    if step:
+        record['step'] = step
+    if step == 'existing_staging_without_handoff':
+        # A failed earlier attempt may explain why the staging tree is present.
+        try:
+            previous = read_json(path, 4096)
+        except (OSError, ValueError):
+            previous = {}
+        if previous.get('job_id') == job_id and previous.get('step'):
+            return
+    ProtectedFiles().write(path, encode(record))
+
+
 def native_step(worker):
     agent=worker.agent;marker=saved(agent)
     if marker and marker['phase']=='done':return 'done'
-    try:job=agent.call('/api/agent/uninstall/poll',{'role':'native'}).get('job')
+    try:job=agent.call('/api/agent/uninstall/poll',{'role':'native','removal_keep_process_audit':True}).get('job')
     except (OSError,ConnectionError) as exc:
         # A completed ACK can be lost just before the administrator revokes the
         # credential. Cleanup is already durable; do not keep a retired process.
@@ -140,11 +158,15 @@ def native_step(worker):
         from .remote_removal import prepare
         try:prepare(worker,job)
         except (OSError,ConnectionError,ValueError) as exc:
-            try:agent.call('/api/agent/uninstall/files-error',{'job_id':job['id'],'winerror':getattr(exc,'winerror',None)})
-            except (OSError,ConnectionError,ValueError):pass
-            # Fixed local evidence, not a misleading legacy completion ACK.
-            from .protected_files import ProtectedFiles,encode
-            ProtectedFiles().write(agent.config_path.parent/'removal-prepare-error.json',encode({'job_id':job['id'],'error_type':type(exc).__name__,'winerror':getattr(exc,'winerror',None)}))
+            from .process_audit import ProcessAuditConflict
+            body={'job_id':job['id'],'winerror':getattr(exc,'winerror',None)}
+            if isinstance(exc,ProcessAuditConflict) and 'keep_process_audit' in job.get('cleanup',{}):
+                body['error_code']='PROCESS_AUDIT_CONFLICT'
+            try:
+                record_prepare_error(agent, job['id'], exc)
+            finally:
+                try:agent.call('/api/agent/uninstall/files-error',body)
+                except (OSError,ConnectionError,ValueError):pass
         return 'pending'
     if not job or job['main']!='ready':return 'pending' if marker else 'normal'
     try:

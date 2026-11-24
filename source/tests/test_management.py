@@ -104,9 +104,9 @@ class ManagementTest(unittest.TestCase):
             self.assertTrue(machine['body']['browser_audit']);self.assertTrue(machine['body']['allow_export'])
             self.assertFalse(agent.policy_for_user('COMPANY\\ALICE')['body']['browser_audit'])
             with patch('guarddesk.browser_host.current_account',return_value='COMPANY\\alice'):
-                self.assertFalse(handle_message(agent,{'type':'navigation','url':'https://example.com'})['recorded'])
+                self.assertFalse(handle_message(agent,{'type':'web_upload','phase':'started','upload_id':'owned-policy','method':'POST','url':'https://example.com/upload','files':[{'path':r'C:\Owned\report.pdf'}]})['recorded'])
             with patch('guarddesk.browser_host.current_account',return_value='COMPANY\\bob'):
-                self.assertTrue(handle_message(agent,{'type':'navigation','url':'https://example.com'})['recorded'])
+                self.assertTrue(handle_message(agent,{'type':'web_upload','phase':'started','upload_id':'owned-policy','method':'POST','url':'https://example.com/upload','files':[{'path':r'C:\Owned\report.pdf'}]})['recorded'])
             source=self.watch/'personal.txt';source.write_text('hello')
             with patch('guarddesk.agent.current_account',return_value='COMPANY\\alice'):
                 with self.assertRaises(PermissionError):agent.export(source,self.root/'blocked-personal.txt')

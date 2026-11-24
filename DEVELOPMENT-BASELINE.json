@@ -2,7 +2,7 @@
   "format": 1,
   "workflow": "management-build-v1-public-source",
   "accepted_baseline": "CURRENT-BASELINE.json",
-  "accepted_version": "0.4.108",
+  "accepted_version": "0.4.122",
   "accepted_revision": "001",
   "source": "source",
   "generated_stage": "runtime/remote-next-src",
@@ -16,5 +16,5 @@
   "automatic_install_or_deploy": false,
   "formal_release_allowed": false,
   "public_source_is_sanitized": true,
-  "upstream_source_revision": 1773
+  "upstream_source_revision": 1789
 }

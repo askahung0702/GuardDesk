@@ -120,16 +120,18 @@ def main():
                 agent.heartbeat(refresh_inventory=False);packet=agent.call('/api/agent/native-usb-policy',{})
                 agent.call('/api/agent/native-usb-status',{**packet,'status':'configured_replug_required','registry':{'Deny_Read':0,'Deny_Write':0},'worker_version':'0.4.4'})
                 page.locator('nav [data-page=devices]').click();page.locator('[data-action=device][data-id="'+eid+'"]').click()
-                page.locator('[data-action=uninstall-device]').click();page.locator('#uninstall-form [name=confirm_name]').fill('UI 模擬端點');page.locator('#uninstall-form [name=reason]').fill('僅建立隔離測試工作，不移除實機')
-                with page.expect_response('**/api/devices/uninstall') as removal:page.locator('#uninstall-form button').click()
-                assert removal.value.ok;page.get_by_text('遠端解除安裝：等待端點連線（尚未執行）',exact=True).wait_for()
-                assert removal.value.json()['device_id']==eid
-                page.screenshot(path=str(root/'evidence/remote-uninstall-0.4.4.png'),full_page=True)
+                actions=page.locator('.detail-heading .actions button')
+                assert actions.all_text_contents()==['移動群組','指派策略','只回報心跳','直接退役並清除中心資料']
+                for label,next_label in [('只回報心跳','恢復正常'),('恢復正常','只回報心跳')]:
+                    with page.expect_response('**/api/devices/heartbeat-mode') as switched:
+                        page.get_by_role('button',name=label,exact=True).click()
+                    assert switched.value.ok
+                    page.get_by_role('button',name=next_label,exact=True).wait_for()
                 assert not errors,errors
                 browser.close()
         finally:
             stop.set();worker.join(5);server.shutdown();server.server_close();endpoint_server.shutdown();endpoint_server.server_close()
-    report={'passed':True,'page_errors':errors,'checks':['audit first page auto refreshes fresh web event','editing an unsubmitted filter pauses auto refresh','full source and destination paths visible','structured event detail','application policy module publishes blacklist','separate support account and per-device grants','support cannot view policy navigation','simulated endpoint approval/frame displayed','grant revocation closes session and removes frame','typed endpoint confirmation creates only that endpoint removal job and shows queued status'],'real_desktop_control_tested':False,'real_endpoint_uninstalled':False,'company_policy_modified':False}
+    report={'passed':True,'page_errors':errors,'checks':['audit first page auto refreshes fresh web event','editing an unsubmitted filter pauses auto refresh','full source and destination paths visible','structured event detail','application policy module publishes blacklist','separate support account and per-device grants','support cannot view policy navigation','simulated endpoint approval/frame displayed','grant revocation closes session and removes frame','four endpoint actions and reversible heartbeat-only mode'],'real_desktop_control_tested':False,'real_endpoint_uninstalled':False,'company_policy_modified':False}
     report['management_listener']='loopback-only HTTP'
     report['checks'].extend(['admin UI downloads single endpoint ZIP with setup launcher, GUI Agent and embedded reusable enrollment code','deployment dialog shows automatic registration without exposing bootstrap code; confirmed revoke/rotate changes downloaded package'])
     report['agent_listener']='agent-only HTTPS, verified test CA'

@@ -16,6 +16,28 @@ namespace {
 using namespace remote;
 void need(bool value,const char* reason){if(!value)throw std::runtime_error(reason);}
 struct Handle {HANDLE value=nullptr;~Handle(){if(value && value!=INVALID_HANDLE_VALUE)CloseHandle(value);}Handle()=default;Handle(const Handle&)=delete;};
+// The fixture's declared2/5ms cadence must not depend on ambient Sleep timer
+// rounding. This unnamed, non-inherited timer never changes system resolution.
+class OwnedCadence {
+    Handle timer_;
+public:
+    OwnedCadence(){timer_.value=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE|SYNCHRONIZE);need(timer_.value!=nullptr,"owned_high_resolution_timer_unavailable");}
+    void wait(std::chrono::milliseconds duration){
+        LARGE_INTEGER due{};due.QuadPart=-duration.count()*10000;
+        need(SetWaitableTimer(timer_.value,&due,0,nullptr,nullptr,FALSE)!=FALSE,"owned_timer_arm");
+        need(WaitForSingleObject(timer_.value,1000)==WAIT_OBJECT_0,"owned_timer_wait");
+    }
+};
+int cadence_probe(){
+    OwnedCadence cadence;
+    for(unsigned requested:{2u,5u}){
+        std::uint64_t total=0,maximum=0;
+        for(unsigned i=0;i<10;++i){const auto start=std::chrono::steady_clock::now();cadence.wait(std::chrono::milliseconds(requested));const auto elapsed=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-start).count());total+=elapsed;maximum=std::max(maximum,elapsed);}
+        std::cout<<"{\"owned_wait_requested_ms\":"<<requested<<",\"average_us\":"<<total/10<<",\"max_us\":"<<maximum<<",\"global_timer_resolution_changed\":false}\n"<<std::flush;
+        need(total/10<requested*1000+5000,"owned_timer_cadence_insufficient");
+    }
+    return 0;
+}
 ipc::Session id(){ipc::Session value{};value[0]=9;return value;}
 struct Counts {std::uint64_t frames=0,inputs=0,clears=0,consumed=0;};
 bool read_exact(HANDLE pipe,void* bytes,DWORD count){DWORD read=0;return ReadFile(pipe,bytes,count,&read,nullptr) && read==count;}
@@ -34,6 +56,7 @@ int child(const std::array<std::wstring,4>& arguments){
     DesktopObservation desktop{true,true,false,1,{0,0,1920,1080},{0,0,1920,1080}};
     SessionRuntime runtime(id(),7,started,started+60000,[&](const auto& batch){counts.inputs+=batch.size();return static_cast<UINT>(batch.size());},[&]{pool.clear();++counts.clears;});
     Pixels pixels{1920,1080,std::vector<std::uint8_t>(1920*1080*4,145)};
+    OwnedCadence idle_wait;
     std::uint64_t next_frame=0,sequence=0;bool granted=false;
     while(!runtime.ended() && GetTickCount64()-started<60000){
         DWORD available=0;if(!PeekNamedPipe(commands.value,nullptr,0,nullptr,&available,nullptr))break;
@@ -61,11 +84,12 @@ int child(const std::array<std::wstring,4>& arguments){
                 need(runtime.publish_frame(sequence,now),"owned_publish_gate");++counts.frames;
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        idle_wait.wait(std::chrono::milliseconds(2));
     }
     runtime.close(desktop);write_exact(status.value,&counts,sizeof(counts));return 0;
 }
 int parent(){
+    OwnedCadence idle_wait;
     struct Window {HWND value=nullptr;~Window(){if(value)DestroyWindow(value);}} window;
     WNDCLASSW kind{};kind.lpfnWndProc=DefWindowProcW;kind.hInstance=GetModuleHandleW(nullptr);kind.lpszClassName=L"GuardDeskOwnedHandoff";
     need(RegisterClassW(&kind)!=0,"owned_window_class");
@@ -99,13 +123,18 @@ int parent(){
     std::uint64_t command_sequence=0,last_grant=0,last_move=0,last_release=0,presented=0,last_generation=0;
     std::array<std::uint64_t,2> consumed{};unsigned sent_moves=0,releases=0,source_rejected=0;
     std::vector<std::uint64_t> presentation_latency;PointerPacer pointer_pacer;
-    auto send=[&](ipc::Message message){message.header.sequence=++command_sequence;const auto bytes=ipc::encode_control(message,ipc::Direction::broker_to_worker);write_exact(command_write.value,bytes.data(),static_cast<DWORD>(bytes.size()));};
+    // Test-only aggregate timing: no new deadline, pacing or acceptance rule.
+    auto micros=[](){return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());};
+    std::uint64_t iterations=0,dispatch_us=0,handoff_us=0,present_us=0,sleep_us=0,write_us=0,max_iteration_us=0;
+    auto send=[&](ipc::Message message){message.header.sequence=++command_sequence;const auto bytes=ipc::encode_control(message,ipc::Direction::broker_to_worker);const auto begin=micros();write_exact(command_write.value,bytes.data(),static_cast<DWORD>(bytes.size()));write_us+=micros()-begin;};
     auto iterate=[&](unsigned phase){
+        const auto iteration_start=micros();
         const auto now=GetTickCount64();grant();
         if(now-last_grant>=300){last_grant=now;std::vector<std::uint8_t> payload(24);put(payload,0,now+3000,8);put(payload,8,1,8);put(payload,16,1,4);send({{ipc::Kind::lease,24,id(),0,0,0,7},payload});}
         MSG message{};unsigned budget=0;while(budget++<64 && PeekMessageW(&message,window.value,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         receiver.pump();sender.pump();need(!receiver.ended() && !sender.ended(),"owned_media_ended");
         while(auto command=sender.take_control())send(std::move(*command));
+        const auto handoff_start=micros();dispatch_us+=handoff_start-iteration_start;
         try{if(sender.connected()){
             const std::array<FrameTicket,2> tickets{peek_shared_frame(read.at(0).value,storage.mapping_bytes(),id()),peek_shared_frame(read.at(1).value,storage.mapping_bytes(),id())};
             if(!tickets.at(0).generation && !tickets.at(1).generation && last_generation){sender.pause_source(last_generation);last_generation=0;}
@@ -116,25 +145,31 @@ int parent(){
                 send({{ipc::Kind::consumed,0,id(),frame.ticket.generation,0,frame.ticket.sequence,7},{}});
             }
         }}catch(const FrameRetry&){}
+        const auto present_start=micros();handoff_us+=present_start-handoff_start;
         if(auto ticket=viewer.present()){
             need(receiver.presented(*ticket),"owned_present_ACK");++presented;
             need(GetTickCount64()>=ticket->tick,"owned_future_frame_tick");
             if(presentation_latency.size()<1024)presentation_latency.push_back(GetTickCount64()-ticket->tick);
         }
+        present_us+=micros()-present_start;
         if(phase && now-last_move>=10){last_move=now;std::vector<std::uint8_t> move(24);move.at(0)=3;move.at(4)=100;move.at(8)=80;pointer_pacer.replace(std::move(move),now);}
         if(auto move=pointer_pacer.take(now)){if(receiver.input(*move))++sent_moves;}
         if(phase==2 && now-last_release>=200){last_release=now;receiver.release_all();++releases;}
         need(WaitForSingleObject(process.value,0)==WAIT_TIMEOUT,"owned_producer_exited");
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        const auto sleep_start=micros();
+        idle_wait.wait(std::chrono::milliseconds(5));
+        const auto finished=micros();sleep_us+=finished-sleep_start;++iterations;max_iteration_us=std::max(max_iteration_us,finished-iteration_start);
     };
     const auto warmup=GetTickCount64()+12000;while(presented<3 && GetTickCount64()<warmup)iterate(0);
     need(presented>=3,"owned_visible_present_unavailable");
     for(unsigned phase=0;phase<3;++phase){const auto before=presented,start=GetTickCount64();const auto old_moves=sent_moves;presentation_latency.clear();
+        iterations=dispatch_us=handoff_us=present_us=sleep_us=write_us=max_iteration_us=0;
         while(GetTickCount64()-start<5000)iterate(phase);
         const auto tx=sender.stats(),rx=receiver.stats();
         need(!presentation_latency.empty(),"owned_no_latency_samples");std::sort(presentation_latency.begin(),presentation_latency.end());
         const auto p95=presentation_latency.at((presentation_latency.size()-1)*95/100);
         std::cout<<"{\"phase\":"<<phase<<",\"presented_delta\":"<<presented-before<<",\"encoded\":"<<tx.encoded<<",\"decoded\":"<<rx.decoded<<",\"moves\":"<<sent_moves-old_moves<<",\"source_rejected\":"<<source_rejected<<",\"frame_to_present_p95_ms\":"<<p95<<",\"latency_samples\":"<<presentation_latency.size()<<"}\n"<<std::flush;
+        std::cout<<"{\"phase_diagnostics\":"<<phase<<",\"iterations\":"<<iterations<<",\"dispatch_and_control_us\":"<<dispatch_us<<",\"handoff_us\":"<<handoff_us<<",\"present_us\":"<<present_us<<",\"sleep_us\":"<<sleep_us<<",\"pipe_write_us_subset\":"<<write_us<<",\"max_iteration_us\":"<<max_iteration_us<<"}\n"<<std::flush;
         need(presented>=before+40 && p95<500 && tx.codec_failures==0 && rx.codec_failures==0,"owned_handoff_stalled");if(phase)need(sent_moves>=old_moves+40 && sent_moves<=old_moves+153,"owned_moves_not_paced");
     }
     send({{ipc::Kind::stop,0,id(),0,0,0,7},{}});need(WaitForSingleObject(process.value,3000)==WAIT_OBJECT_0,"owned_child_stop");
@@ -146,6 +181,9 @@ int parent(){
 }
 int wmain(int argc,wchar_t** argv){SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32|LOAD_LIBRARY_SEARCH_APPLICATION_DIR);try{
     if(argc==1)return parent();
+#pragma clang unsafe_buffer_usage begin
+    if(argc==2 && std::wstring(argv[1])==L"--owned-wait-precision")return cadence_probe();
+#pragma clang unsafe_buffer_usage end
     if(argc!=6)return 2;
 #pragma clang unsafe_buffer_usage begin
     const std::wstring mode(argv[1]);const std::array<std::wstring,4> values{argv[2],argv[3],argv[4],argv[5]};

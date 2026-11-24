@@ -197,7 +197,7 @@ class SystemTest(unittest.TestCase):
         from guarddesk.browser_host import handle_message
         agent,eid,_=self.make_agent()
         agent.config['server']='http://127.0.0.1:1'
-        message={'type':'navigation','event_id':'browser-durable-test','url':'https://example.com/folder?test=1','tab_id':3,'browser':'chrome'}
+        message={'type':'web_upload','phase':'started','upload_id':'owned-durable-flow','method':'POST','files':[{'path':r'C:\Owned\report.pdf'}],'event_id':'browser-durable-test','url':'https://example.com/folder?test=1','tab_id':3,'browser':'chrome'}
         handle_message(agent,message)
         agent.queue('file.opened',{'path':r'C:\Documents\offline.txt','user':'COMPANY\\alice','source':'test_fixture'})
         agent.queue('network.upload',{'domain':'example.com','outgoing_bytes':4096,'source':'test_fixture'})
@@ -208,7 +208,7 @@ class SystemTest(unittest.TestCase):
         handle_message(restarted,message) # Browser retried a committed event after ack loss.
         restarted.flush()
         rows=self.api('/api/events?device='+eid)['items']
-        for kind in ('web.navigation','network.upload','file.opened'):
+        for kind in ('web.upload_started','network.upload','file.opened'):
             self.assertEqual(sum(r['kind']==kind for r in rows),1)
         self.assertEqual(restarted.queue_status()['pending'],0)
 

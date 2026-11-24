@@ -213,7 +213,7 @@ class ArchiveWorker:
                                 csv_stream=csv_path.open('x',encoding='utf-8-sig',newline='');writer=csv.writer(csv_stream);writer.writerow(['id','event_id','發生時間（台北）','接收時間（台北）','端點','使用者','操作','完整來源路徑','目的地','網址','完整事件','prev_hash','hash'])
                         output.write(data)
                         if csv_stream:
-                            d=row['details'] if isinstance(row['details'],dict) else {};writer.writerow([safe_csv(v) for v in [row['id'],row['event_id'],local_time(row['occurred']),local_time(row['received']),row['device_name'],d.get('user',d.get('actor','')),row['kind'],d.get('source_path',d.get('path','')),d.get('destination_path',''),d.get('url',''),canonical(row['details']),row['prev_hash'],row['hash']]])
+                            d=row['details'] if isinstance(row['details'],dict) else {};writer.writerow([safe_csv(v) for v in [row['id'],row['event_id'],local_time(row['occurred']),local_time(row['received']),row['device_name'],d.get('user',d.get('actor','')),row['kind'],d.get('source_path',d.get('path','')),d.get('destination_path',''),d.get('url') or d.get('domain',''),canonical(row['details']),row['prev_hash'],row['hash']]])
                         part_rows+=1;part_bytes+=len(data);total+=1;day_rows+=1
                         cursor_time=row[basis];cursor_id=row['id']
                         if part_rows>=MAX_PART_ROWS or part_bytes>=MAX_PART_BYTES:finish()

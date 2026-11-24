@@ -71,8 +71,10 @@ class StorageTransactionTest(unittest.TestCase):
             if body.get('state')=='healthy':raise ConnectionError('owned lost ACK')
             return original(path,body)
         self.agent.call=offline
-        with self.assertRaises(ConnectionError):tx.apply(self.envelope)
-        self.assertFalse(json.loads(tx.journal.read_text())['reported'])
+        tx.apply(self.envelope)
+        local=json.loads(tx.journal.read_text(encoding='utf-8'))
+        self.assertEqual(local['phase'],'healthy')
+        self.assertFalse(local['reported'])
         self.agent.call=original;tx.recover()
         receipt=tx.root/self.payload['id']/update_cache.RECEIPT
         self.assertTrue(receipt.is_file());before=receipt.stat().st_mtime_ns

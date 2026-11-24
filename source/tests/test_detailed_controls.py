@@ -16,7 +16,7 @@ from guarddesk.application_control import applocker_xml
 from guarddesk.policy import DEFAULT_POLICY,validate_policy
 from guarddesk.windows_events import SecurityCollector
 from guarddesk.windows_watch import RenamePairs,DirectoryMonitor
-from guarddesk.browser_host import handle_message
+from guarddesk.browser_host import handle_message,sanitize_url
 from guarddesk import remote
 
 
@@ -82,11 +82,12 @@ class DetailedControlsTest(unittest.TestCase):
         policy=copy.deepcopy(DEFAULT_POLICY);policy['application_control']={'enabled':True,'mode':'denylist','block_msi':False,'rules':[{'name':'Unsafe','collection':'Exe','type':'path','value':r'*\GuardDesk.exe'}]}
         with self.assertRaises(ValueError):validate_policy(policy)
 
-    def test_browser_title_and_sensitive_url_redaction(self):
-        agent,_,_=self.make_agent();handle_message(agent,{'type':'page_title','url':'https://example.com/report?access_token=secret&q=review#fragment','title':'Report <test>'})
-        with agent.db() as db:row=json.loads(db.execute('SELECT payload FROM outbox').fetchone()[0])
-        self.assertEqual(row['kind'],'web.page_title');self.assertEqual(row['details']['title'],'Report <test>')
-        self.assertNotIn('secret',row['details']['url']);self.assertIn('q=review',row['details']['url'])
+    def test_retired_browser_title_and_shared_sensitive_url_redaction(self):
+        agent,_,_=self.make_agent();message={'type':'page_title','url':'https://example.com/report?access_token=secret&q=review#fragment','title':'Report <test>'}
+        self.assertEqual(handle_message(agent,message),{'ok':True,'discarded':True})
+        with agent.db() as db:self.assertEqual(db.execute('SELECT count(*) FROM outbox').fetchone()[0],0)
+        url,_=sanitize_url(message['url'])
+        self.assertNotIn('secret',url);self.assertIn('q=review',url);self.assertNotIn('#fragment',url)
 
     def support(self):
         self.api('/api/remote/account',{'username':'helper','password':self.password})

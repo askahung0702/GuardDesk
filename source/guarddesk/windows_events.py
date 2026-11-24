@@ -125,6 +125,8 @@ class SecurityCollector:
                      'exit_status':d.get('Status') if not started else None,'windows_event_id':eid,'record_id':rid,'source':'windows_security'}
             # Command lines can contain credentials; never forward them.
             kind='application.started' if started else 'application.stopped'
+            from .audit_collection import excluded_stop
+            if excluded_stop(kind, 'info', details, policy):return
             if not excluded_application(kind,'info',details,policy.get('application_audit_exclusions',[])):
                 self.agent.queue(kind,details,db=db,occurred=event['occurred'],event_id='security-process-'+str(rid)+'-'+str(event['occurred']))
             return

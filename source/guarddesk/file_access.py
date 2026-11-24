@@ -1,7 +1,7 @@
-"""File-open collection filters; legacy-compatible reserved policy rules.
+"""Ordinary file-open/read filters; legacy-compatible reserved policy rules.
 
 These rules filter ordinary open/read observations only. They never change
-Defender, application execution, file mutations, upload evidence or warnings.
+Defender, application execution, file writes, upload evidence or warnings.
 """
 import collections
 import ctypes
@@ -30,7 +30,7 @@ def options(rules):
             seconds=int(raw);interval_seen=True
         elif value.startswith(PROCESS):programs.append(value[len(PROCESS):])
         elif value.startswith('@guarddesk:file-access:'):raise ValueError('檔案讀取排除設定版本或格式不正確')
-    validate_exclusions(programs)
+    validate_exclusions(programs,allow_directories=False)
     if any('{' in p or '}' in p for p in programs):raise ValueError('讀取排除程式請使用精確檔名或路徑，不使用使用者路徑模板')
     return {'exclude_services':not include,'exclude_processes':programs,'mode':mode,'interaction_seconds':seconds}
 

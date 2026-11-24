@@ -3,9 +3,16 @@ import copy
 import ntpath
 import time
 
+from .file_exclusions import FILENAME_PREFIX_RULE
+
 ROAMING = r'C:\Users\{user}\AppData\Roaming'
-APPLICATIONS = ('conhost.exe', 'docker.exe')
+SYSTEM32 = 'C:\\Windows\\System32\\'
+LEGACY_APPLICATIONS = ('conhost.exe', 'docker.exe')
+APPLICATIONS = (*LEGACY_APPLICATIONS, SYSTEM32)
 MARKER = 'audit-default-exclusions-v1'
+SYSTEM32_MARKER = 'application-system32-default-v1'
+
+CLAUDE_TEMP = FILENAME_PREFIX_RULE + r'C:\Users\{user}\.claude.json.tmp.*'
 
 
 def server_policy():
@@ -15,7 +22,9 @@ def server_policy():
         return policy()
     from .policy import DEFAULT_POLICY
     body = copy.deepcopy(DEFAULT_POLICY)
-    body['file_audit']['exclude_paths'] = [ROAMING]
+    body['file_audit']['exclude_paths'] = [ROAMING, CLAUDE_TEMP]
+    body['application_stop_mode'] = 'selected'
+    body['browser_upload_mode'] = 'enabled'
     body['application_audit_exclusions'] = list(APPLICATIONS)
     return body
 
@@ -30,15 +39,21 @@ def migrate(db):
     from .management import validate_active_combinations, ControlPlane, bump, ManagementError
     if not db.in_transaction:
         raise RuntimeError('Default policy migration requires a write transaction')
-    if db.execute('SELECT 1 FROM control_meta WHERE key=?', (MARKER,)).fetchone():
-        return
+    legacy_pending=not db.execute('SELECT 1 FROM control_meta WHERE key=?',(MARKER,)).fetchone()
+    system32_pending=not db.execute('SELECT 1 FROM control_meta WHERE key=?',(SYSTEM32_MARKER,)).fetchone()
+    if not legacy_pending and not system32_pending:return
     current = Store.policy(db)
     body = copy.deepcopy(current['body'])
     additions = {}
     skipped = []
+    # Respect an explicitly cleared baseline after the original defaults were
+    # installed. Scoped overrides/empty lists remain untouched by this migration.
+    apps=list(LEGACY_APPLICATIONS) if legacy_pending else []
+    if system32_pending and (legacy_pending or body['application_audit_exclusions']):apps.append(SYSTEM32)
+    reason=MARKER if legacy_pending else SYSTEM32_MARKER
     for key, rules, defaults in (
-        ('file_audit.exclude_paths', body['file_audit']['exclude_paths'], [ROAMING]),
-        ('application_audit_exclusions', body['application_audit_exclusions'], APPLICATIONS),
+        ('file_audit.exclude_paths', body['file_audit']['exclude_paths'], [ROAMING] if legacy_pending else []),
+        ('application_audit_exclusions', body['application_audit_exclusions'], apps),
     ):
         known = {ntpath.normcase(ntpath.normpath(p)) for p in rules}
         missing = [p for p in defaults if ntpath.normcase(ntpath.normpath(p)) not in known]
@@ -71,9 +86,10 @@ def migrate(db):
         if additions:
             Store.event(db, 'console', 'policy.published', 'warning',
                         {'actor': 'system-audit-defaults', 'version': version,
-                         'reason': MARKER, 'added': additions, 'skipped_fields': skipped})
+                         'reason': reason, 'added': additions, 'skipped_fields': skipped})
     if skipped:
         Store.event(db, 'console', 'policy.defaults_skipped', 'warning',
-                    {'reason': MARKER, 'fields': skipped,
+                    {'reason': reason, 'fields': skipped,
                      'note': 'Existing limits or scoped combinations require MIS review; custom rules preserved'})
-    db.execute('INSERT INTO control_meta VALUES (?,1)', (MARKER,))
+    if legacy_pending:db.execute('INSERT INTO control_meta VALUES (?,1)',(MARKER,))
+    if system32_pending:db.execute('INSERT INTO control_meta VALUES (?,1)',(SYSTEM32_MARKER,))

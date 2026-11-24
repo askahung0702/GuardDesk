@@ -197,6 +197,8 @@ def due_schedules(settings,now):
     return [(r,day+'T'+minute+'+08:00') for r in settings['schedules'] if local.isoweekday() in r['days'] and minute in r['times']]
 
 def busy(db,device_id):
+    from .updates import switching
+    if switching(db,device_id):return True
     from .software import active as software_active
     if software_active(db,device_id):return True
     now=time.time()

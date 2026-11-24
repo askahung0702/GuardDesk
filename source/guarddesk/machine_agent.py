@@ -17,12 +17,15 @@ USER_PATHS = frozenset(('/api/agent/heartbeat', '/api/agent/events',
 
 
 def cached_machine_policy(agent):
+    if getattr(agent,'idle_revision',0):
+        from .policy import heartbeat_policy
+        return heartbeat_policy(agent.idle_revision)
     from .policy import decode_agent_policy
     with agent.db() as db:
-        rows=dict(db.execute("SELECT key,value FROM state WHERE key IN ('extended_policy','extended_audit_options','extended_file_access_options','extended_target_controls')"))
+        rows=dict(db.execute("SELECT key,value FROM state WHERE key IN ('extended_policy','extended_audit_options','extended_file_access_options','extended_filename_prefix_options','extended_target_controls','extended_collection_options','extended_application_directory_options')"))
     if 'extended_policy' not in rows:return None
     packet={'version':0,'body':json.loads(rows['extended_policy'])}
-    for name,field in [('extended_audit_options','audit_options'),('extended_file_access_options','file_access_options'),('extended_target_controls','target_controls')]:
+    for name,field in [('extended_audit_options','audit_options'),('extended_file_access_options','file_access_options'),('extended_filename_prefix_options','filename_prefix_options'),('extended_target_controls','target_controls'),('extended_collection_options','collection_options'),('extended_application_directory_options','application_directory_options')]:
         if name in rows:packet[field]=json.loads(rows[name])
     decode_agent_policy(packet)
     return packet
@@ -114,6 +117,9 @@ class Router:
                 if event['kind'].startswith('web.') or event['kind']=='file.web_handoff':
                     event['details']['user']=state['account']
         elif path == '/api/agent/heartbeat':
+            body.pop('native_idle_revision',None)
+            if body.get('idle_heartbeat') is True or getattr(self.agent,'idle_revision',0):
+                return self.online_call(path,{'idle_heartbeat':True,'inventory':{}})
             inventory = body.get('inventory')
             if not isinstance(inventory, dict): raise ValueError('Invalid session inventory')
             from . import remote_trial
@@ -509,8 +515,9 @@ class Supervisor:
                 if state and state['logon']!=old[sid]['logon']:self.retry.pop(sid,None)
         self.retry = {sid: t for sid, t in self.retry.items() if sid in states}
         # Never automatically repeat a launch rejected by antimalware. This
-        # latch is scoped to this supervisor lifetime; it does not alter AV,
-        # kill existing children, or persist company configuration changes.
+        # in-process latch is also persisted by the installed service so that
+        # a new host generation cannot retry the same blocked artifact. This
+        # never changes AV policy or kills an already running helper.
         if self.launch_blocked_antimalware:return
         if hasattr(self.platform,'can_launch') and not self.platform.can_launch():return
         for sid, state in sorted(states.items()):
@@ -521,6 +528,13 @@ class Supervisor:
                 self.failure('launch', exc)
                 if type(getattr(exc,'winerror',None)) is int and exc.winerror in (225,226):
                     self.launch_blocked_antimalware=True
+                    try:
+                        from .service_recovery import persist_security_hold
+                        persist_security_hold(self.agent,exc.winerror)
+                    except (OSError,ValueError) as failure:
+                        self.failure('persist_security_hold',failure)
+                        self.fatal_error=dict(self.last_error)
+                        self.stop.set()
                     return
 
     def report_main_update(self):

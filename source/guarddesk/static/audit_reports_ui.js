@@ -1,6 +1,6 @@
 'use strict';
 Object.assign(labels,{reports:'稽核總表',archives:'日誌備份匯出'});
-const actionNames={changes:'所有異動',all:'異動與讀取',created:'新增',modified:'修改',deleted:'刪除',moved:'移動',renamed:'重新命名',opened:'讀取'};
+const actionNames={changes:'所有異動',all:'異動與讀取',created:'新增',modified:'修改（歷史）',written:'寫入／儲存活動',deleted:'刪除',moved:'移動',renamed:'重新命名',opened:'讀取'};
 let reportDateMode='today',reportDefaultDay=todayTaipei();
 let reportSettings={start:todayTaipei(),end:todayTaipei(),action:'changes',device:''},reportData=null,reportChart='bar',reportPage=0;
 let archiveSettings={start:todayTaipei(),end:todayTaipei(),basis:'occurred',csv:true},archiveData=null;

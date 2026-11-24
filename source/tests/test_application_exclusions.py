@@ -43,7 +43,7 @@ class ApplicationExclusionsTest(unittest.TestCase):
         wire=agent_policy_wire(packet)
         self.assertEqual(packet,before)
         for p in (wire,wire['user_policies']['acme\\alice']):
-            self.assertEqual(set(p['body']),set(DEFAULT_POLICY)-{'application_audit_exclusions','website_control','application_publishers'})
+            self.assertEqual(set(p['body']),{'mode','allow_export','blocked_extensions','keywords','max_export_mb','usb_mode','file_audit','browser_audit','upload_rules','application_audit','application_control'})
             self.assertEqual(p['audit_options']['application_exclusions'],['docker.exe'])
             self.assertEqual(p['target_controls']['website_control'],body['website_control'])
             self.assertEqual(p['target_controls']['application_publishers'],body['application_publishers'])

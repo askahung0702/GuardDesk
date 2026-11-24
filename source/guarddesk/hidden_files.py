@@ -12,6 +12,7 @@ import time
 
 HIDDEN_RULE='@guarddesk:hidden-files:v1'
 HIDDEN=2
+DIRECTORY=0x10
 REPARSE=0x400
 _local=threading.local()
 
@@ -43,9 +44,9 @@ class HiddenPaths:
         self.cache[key]=(self.clock()+2,attributes);self.cache.move_to_end(key)
         while len(self.cache)>2048:self.cache.popitem(last=False)
 
-    def get(self,path):
+    def get(self,path,refresh=False):
         now=self.clock();saved=self.cache.get(path)
-        if saved and saved[0]>now:
+        if not refresh and saved and saved[0]>now:
             self.cache.move_to_end(path);return saved[1]
         if self.window is None or now-self.window>=1:self.window=now;self.queries=0
         if self.queries>=128:self.limited+=1;return None
@@ -56,34 +57,47 @@ class HiddenPaths:
         while len(self.cache)>2048:self.cache.popitem(last=False)
         return value
 
-    def hidden(self,path):
+    def local_attributes(self,path,*,refresh_leaf=False):
         from .file_exclusions import normalized_path
         path=normalized_path(path);drive,tail=ntpath.splitdrive(path)
         # Device/UNC and relative paths must never initiate remote I/O.
-        if len(drive)!=2 or drive[1]!=':' or not tail.startswith('\\'):return False
+        if len(drive)!=2 or drive[1]!=':' or not tail.startswith('\\'):return
         parts=tail.strip('\\').split('\\')
-        if parts==[''] or len(parts)>64:return False
+        if parts==[''] or len(parts)>64:return
         if self.metadata is None:
-            if os.name!='nt':return False
+            if os.name!='nt':return
             try:self.metadata=WindowsMetadata()
-            except OSError:return False
+            except OSError:return
         now=self.clock();saved=self.drives.get(drive)
         if not saved or saved[0]<=now:
             try:fixed=self.metadata.fixed(drive+'\\')
             except OSError:fixed=False
             self.drives[drive]=(now+60,fixed)
         else:fixed=saved[1]
-        if not fixed:return False
+        if not fixed:return
         # Walk only lexical ancestors; stop at a junction before querying any
         # child that could resolve to another volume or a network target.
         current=drive
-        for part in parts:
+        for index,part in enumerate(parts):
             current+='\\'+part
-            value=self.get(current)
-            if value is None:return False
-            if value&HIDDEN:return True
-            if value&REPARSE:return False
-        return False
+            leaf=index==len(parts)-1
+            value=self.get(current,refresh=refresh_leaf and leaf)
+            if value is None:return
+            yield value,leaf
+            if value&REPARSE:return
+
+    def hidden(self,path):
+        return any(value&HIDDEN for value,_ in self.local_attributes(path))
+
+    def file_type(self,path):
+        # A named stream must inherit the classification of its base object.
+        drive,tail=ntpath.splitdrive(path)
+        path=drive+tail.split(':',1)[0]
+        for value,leaf in self.local_attributes(path,refresh_leaf=True):
+            if leaf:
+                if value&DIRECTORY:return 'directory'
+                if not value&REPARSE:return 'file'
+        return None
 
 
 def resolver():

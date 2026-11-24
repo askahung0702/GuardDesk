@@ -42,6 +42,42 @@ class ProcessAuditTest(unittest.TestCase):
             with patch('guarddesk.process_audit.read_flags',return_value={key:3 for key in IDS}),patch('guarddesk.process_audit.auditpol') as command:
                 self.assertTrue(configure(Path(temp),True)['process_audit_enabled']);command.assert_not_called()
 
+    def test_full_removal_keeps_both_current_flags_and_only_restores_applocker(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            agent=SimpleNamespace(config_path=Path(temp)/'config.json')
+            worker=ExtendedWorker(agent)
+            ledger=worker.directory/'process-audit-original.json'
+            ledger.write_text(json.dumps(dict.fromkeys(IDS,0)))
+            (worker.directory/'applocker-managed.json').touch()
+            # One externally changed category and one matching GuardDesk's
+            # managed value. Both current values are explicitly requested.
+            with patch('guarddesk.process_audit.read_flags',return_value=dict(zip(IDS,(2,1)))), patch('guarddesk.process_audit.auditpol') as write, patch('guarddesk.application_control.native_action',return_value={'status':'restored'}) as app:
+                result=worker.restore(keep_process_audit=True)
+                self.assertEqual(result['process_audit_configuration'],'preserved_by_admin')
+                self.assertTrue(ledger.exists())
+                write.assert_not_called()
+                app.assert_called_once_with(worker.directory,'Restore',manage_audit=False)
+                app.side_effect=OSError('AppLocker conflict')
+                with self.assertRaisesRegex(OSError,'AppLocker conflict'):
+                    worker.restore(keep_process_audit=True)
+
+    def test_keep_choice_refuses_unreadable_flags_or_invalid_ledger(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory=Path(temp)
+            ledger=directory/'process-audit-original.json'
+            ledger.write_text(json.dumps(dict.fromkeys(IDS,0)))
+            with patch('guarddesk.process_audit.read_flags',side_effect=PermissionError), patch('guarddesk.process_audit.auditpol') as write:
+                with self.assertRaises(PermissionError):
+                    configure(directory,False,keep_current=True)
+                write.assert_not_called()
+            ledger.write_text('{}')
+            with patch('guarddesk.process_audit.read_flags',return_value=dict.fromkeys(IDS,2)), patch('guarddesk.process_audit.auditpol') as write:
+                with self.assertRaisesRegex(OSError,'Invalid process audit baseline'):
+                    configure(directory,False,keep_current=True)
+                write.assert_not_called()
+            self.assertTrue(ledger.exists())
+
     def test_audit_only_worker_never_launches_powershell_and_caches_verification(self):
         with tempfile.TemporaryDirectory() as temp:
             class Agent:

@@ -16,13 +16,14 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from .policy import validate_policy,agent_policy_wire
+from .policy import validate_policy_edit,agent_policy_wire
 from .store import Store, canonical, digest, password_matches, validate_password
 from . import __version__
 from . import management
 from . import native_usb
 from . import remote
 from . import removal
+from . import heartbeat_mode
 from . import deployment
 from . import updates
 from . import software
@@ -79,6 +80,7 @@ class Server(ThreadingHTTPServer):
         self.owns_search_index=shared is None
         from .bundled_release import Publisher
         self.bundled_release=shared.bundled_release if shared else Publisher(store,self.package_lock,manual_endpoint=self.endpoint_source is not None)
+        self.owns_update_cleanup=shared is None and self.endpoint_source is None
         super().__init__(address, Handler)
         self.search_index=shared.search_index if shared else Worker(store)
         self.audit_service=shared.audit_service if shared else audit_reports.AuditService(store)
@@ -126,11 +128,20 @@ class Server(ThreadingHTTPServer):
             self.request_slots.release()
 
     def remote_cleanup(self):
+        next_package_cleanup=time.monotonic()+30
         while not self.remote_stop.wait(2):
             try:
                 with self.store.connect() as db:
                     db.execute('BEGIN IMMEDIATE');remote.sweep(self,db)
             except sqlite3.Error:pass
+            if self.owns_update_cleanup and time.monotonic()>=next_package_cleanup:
+                next_package_cleanup=time.monotonic()+60
+                if self.package_lock.acquire(blocking=False):
+                    try:
+                        updates.update_retention.cleanup(self.store)
+                    except (OSError, ValueError, sqlite3.Error):
+                        LOG.warning('更新套件清理已延後，稍後重試')
+                    finally:self.package_lock.release()
 
     def server_close(self):
         if getattr(self,'owns_purge_worker',False):self.purge_worker.close()
@@ -252,6 +263,9 @@ class Handler(BaseHTTPRequestHandler):
         row = db.execute("SELECT * FROM devices WHERE token=? AND revoked=0", (digest(auth[7:]),)).fetchone()
         if not row:
             raise APIError(401, "端點認證失敗或已撤銷")
+        if row['heartbeat_only'] and urlsplit(getattr(self,'path','')).path in (
+                '/api/agent/updates/wait','/api/agent/updates/download','/api/agent/software/download'):
+            raise APIError(409,'此端點目前只回報心跳')
         return row
 
     def do_GET(self):
@@ -273,7 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute('BEGIN IMMEDIATE')
                     result,headers,mime=route(self,db,method,path,body,urlsplit(self.path).query)
                 return self.send(200,result,mime,headers)
-            if self.server.surface == 'agent' and path != '/api/health' and not path.startswith('/api/agent/') and not (method=='GET' and path.startswith('/browser-extension/')):
+            removal_callback = method=='POST' and path=='/api/removal-result'
+            if self.server.surface == 'agent' and path != '/api/health' and not path.startswith('/api/agent/') and not removal_callback and not (method=='GET' and path.startswith('/browser-extension/')):
                 raise APIError(403, '此連接埠僅供端點連線，管理畫面請在 Server 本機開啟')
             if self.server.surface == 'console' and path.startswith('/api/agent/'):
                 raise APIError(403, '端點請使用 HTTPS 連接埠')
@@ -553,6 +568,7 @@ class Handler(BaseHTTPRequestHandler):
             device=self.agent(db);job=software.valid(db,device,jid)
             if job['state']!='downloading' or job['expires']<=time.time():raise APIError(409,'軟體工作不可下載')
             m=json.loads(db.execute('SELECT manifest FROM software_packages WHERE id=?',(job['package_id'],)).fetchone()[0])
+            software.require_package_support(db,device['id'],m)
         path=plain(software.repository(self.server.store)/(m['sha256']+'.msi'))
         offset=0;requested=self.headers.get('Range')
         if requested:
@@ -595,19 +611,48 @@ class Handler(BaseHTTPRequestHandler):
             self.server.package_lock.release()
 
     def download_update(self):
+        from contextlib import ExitStack
         params=parse_qs(urlsplit(self.path).query);jid=params.get('job_id',[''])[0]
         import re
         if not re.fullmatch('[0-9a-f]{32}',jid):raise APIError(400,'更新工作識別碼不正確')
-        with self.server.store.connect() as db:
-            device=self.agent(db);job=updates.valid_job(db,device,jid)
-            row=db.execute('SELECT envelope FROM update_releases WHERE id=?',(job['release_id'],)).fetchone()
-            manifest=json.loads(row[0])['payload']
         from .update_packages import plain
-        path=plain(updates.repository(self.server.store)/(job['release_id']+'.zip'))
-        if not path.is_file() or path.stat().st_size!=manifest['bytes']:raise APIError(409,'發布檔案遺失或大小不符')
-        self.send_response(200);self.send_header('Content-Type','application/zip');self.send_header('Content-Length',str(manifest['bytes']));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers()
-        with path.open('rb') as source:
-            while chunk:=source.read(65536):self.wfile.write(chunk)
+        store=self.server.store
+        range_header=self.headers.get('Range')
+        complete=False
+        with ExitStack() as streams:
+            with store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                device=self.agent(db)
+                release,size,offset,lease=updates.begin_download(db,device,jid,params.get('role',[None])[0],range_header)
+                path=plain(updates.repository(store)/(release+'.zip'))
+                if not path.is_file() or path.stat().st_size!=size:raise APIError(409,'發布檔案遺失或大小不符')
+                source=streams.enter_context(path.open('rb'))
+            try:
+                remaining=size-offset
+                source.seek(offset)
+                self.send_response(206 if range_header is not None else 200)
+                self.send_header('Content-Type','application/zip')
+                self.send_header('Content-Length',str(remaining))
+                self.send_header('Accept-Ranges','bytes')
+                if range_header is not None:self.send_header('Content-Range',f'bytes {offset}-{size-1}/{size}')
+                self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers()
+                deadline=time.monotonic()+updates.TRANSFER_SECONDS
+                while remaining and time.monotonic()<deadline:
+                    chunk=source.read(min(65536,remaining))
+                    if not chunk:break
+                    self.wfile.write(chunk)
+                    remaining-=len(chunk)
+                complete=remaining==0
+                if not complete:self.close_connection=True
+            except OSError:
+                self.close_connection=True
+            finally:
+                source.close()
+                try:
+                    with store.connect() as db:
+                        db.execute('BEGIN IMMEDIATE')
+                        updates.finish_download(db,lease,complete)
+                except sqlite3.Error:pass  # The bounded lease expires if the cleanup write fails.
 
     def deployment_action(self, action, body):
         with self.server.store.connect() as db:
@@ -653,6 +698,12 @@ class Handler(BaseHTTPRequestHandler):
             return {"device_id": device_id, "token": agent_token, "policy": agent_policy_wire(management.ControlPlane(db).bundle({'id':device_id,'name':name,'group_id':None,'inventory':{}}))}, headers, mime
         if method == "POST" and path.startswith("/api/agent/"):
             device = self.agent(db)
+            if device['heartbeat_only'] and path != '/api/agent/events':
+                return heartbeat_mode.paused_reply(db,device,path,body),headers,mime
+            if not device['heartbeat_only']:
+                policy_progress.touch(db,device)
+            if path == '/api/agent/heartbeat' and 'native_idle_revision' in body:
+                return {'heartbeat_only':False},headers,mime
             if path in ('/api/agent/software/poll','/api/agent/software/authorize','/api/agent/software/result','/api/agent/software/state'):
                 return software.agent_route(self.server.store,db,device,path,body),headers,mime
             if path=='/api/agent/uninstall/prepare-files':
@@ -691,9 +742,18 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/agent/extended-policy':
                 from .browser_dispatch import projection
                 from .browser_trust import projection as trust_projection
-                return {**agent_policy_wire({'device_id':device['id'],'body':management.ControlPlane(db).resolve(dict(device))['body']}),'browser_dispatch':projection(self.server.store.path.resolve().parent),'browser_trust':trust_projection(self.server.store.path.resolve().parent)},headers,mime
+                from .audit_collection import uploads_enabled_for_device
+                plane = management.ControlPlane(db)
+                policy = plane.resolve(dict(device))['body']
+                deploy_browser = uploads_enabled_for_device(policy, plane, dict(device))
+                packet=agent_policy_wire({'device_id':device['id'],'body':policy})
+                if device['mode_revision']:packet['mode_revision']=device['mode_revision']
+                return {**packet,'user_upload_required':deploy_browser,'browser_dispatch':projection(self.server.store.path.resolve().parent),'browser_trust':trust_projection(self.server.store.path.resolve().parent)},headers,mime
             if path=='/api/agent/extended-status':
                 if len(canonical(body))>4000:raise APIError(400,'收集器狀態過大')
+                revision=body.get('mode_revision')
+                if type(revision) is int and revision==device['mode_revision'] and revision>0 and device['mode_ack']!=revision:
+                    db.execute('UPDATE devices SET mode_ack=? WHERE id=?',(revision,device['id']))
                 old=db.execute('SELECT body FROM extended_status WHERE device_id=?',(device['id'],)).fetchone()
                 if not old or json.loads(old[0]).get('status')!=body.get('status'):Store.event(db,device['id'],'agent.extended_status','warning' if body.get('status')=='failed' else 'info',body)
                 db.execute('INSERT OR REPLACE INTO extended_status VALUES (?,?,?)',(device['id'],canonical(body),time.time()))
@@ -705,6 +765,10 @@ class Handler(BaseHTTPRequestHandler):
                 fingerprint=body.get('policy_fingerprint','')
                 if not isinstance(inventory, dict) or len(canonical(inventory)) > 64000 or type(ack) is not int or not 0 <= ack <= 9223372036854775807 or not isinstance(fingerprint,str) or (fingerprint and (len(fingerprint)!=64 or any(c not in '0123456789abcdef' for c in fingerprint))):
                     raise APIError(400, "心跳欄位不正確")
+                if body.get('idle_heartbeat') is True:
+                    current=management.ControlPlane(db).bundle(dict(device))
+                    db.execute('UPDATE devices SET last_seen=? WHERE id=?',(time.time(),device['id']))
+                    return {'policy':agent_policy_wire(current),'server_time':time.time()},headers,mime
                 current=management.ControlPlane(db).bundle({**dict(device),'inventory':inventory})
                 db.execute("UPDATE devices SET last_seen=?,policy_version=?,policy_fingerprint=?,inventory=?,last_address=? WHERE id=?", (time.time(), ack,fingerprint, canonical(inventory),self.client_address[0], device["id"]))
                 if ack != device["policy_version"] or fingerprint!=device['policy_fingerprint']:
@@ -722,9 +786,15 @@ class Handler(BaseHTTPRequestHandler):
                 from .file_access import excluded_event as excluded_file_access
                 # Resolve the authenticated computer's current policy once per
                 # bounded batch, including inherited group/device overrides.
-                collection_policy=management.ControlPlane(db).resolve(dict(device))['body']
-                exclusions=collection_policy['file_audit']['exclude_paths']
-                application_exclusions=collection_policy['application_audit_exclusions']
+                from . import audit_collection
+                if not device['heartbeat_only']:
+                    plane = management.ControlPlane(db)
+                    target = dict(device)
+                    collection_policy = plane.resolve(target)['body']
+                    user_policies = {}
+                    assigned_users = {a['target_id'] for a in plane.assignments if a['enabled'] and a['target_type'] == 'user'}
+                    exclusions=collection_policy['file_audit']['exclude_paths']
+                    application_exclusions=collection_policy['application_audit_exclusions']
                 for e in events:
                     if not isinstance(e, dict):
                         raise APIError(400, "事件格式不正確")
@@ -734,11 +804,31 @@ class Handler(BaseHTTPRequestHandler):
                         raise APIError(400, "事件欄位不正確")
                     if type(occurred) not in (int, float) or not math.isfinite(occurred) or not 0 <= occurred <= 253402300799:
                         raise APIError(400, "事件時間不正確")
+                    if device['mode_revision'] and heartbeat_mode.suppressed_at(db,device['id'],occurred):
+                        accepted.append(eid)
+                        continue
+                    if device['heartbeat_only']:
+                        # Pre-pause rows remain in the endpoint outbox until normal operation resumes.
+                        continue
                     if occurred>time.time()+300:
                         details={**details,'clock_warning':'agent_timestamp_in_future'}
                     # Acknowledge legacy agents so they can drain their outbox;
                     # excluded events are not appended to the immutable log.
-                    if kind != 'file.modified' and not excluded_internal_health_activity(kind,severity,details) and not excluded_installer_activity(kind,severity,details) and not excluded_activity(kind,details,exclusions) and not excluded_application(kind,severity,details,application_exclusions) and not excluded_file_access(kind,severity,details,exclusions):
+                    if audit_collection.browser_kind(kind):
+                        account = audit_collection.browser_account(kind, details)
+                        policy = collection_policy
+                        if account in assigned_users:
+                            if account not in user_policies:
+                                user_policies[account] = plane.resolve(target, account)['body']
+                            policy = user_policies[account]
+                        details = audit_collection.browser_details(kind, details, policy)
+                        if details is None:
+                            accepted.append(eid)
+                            continue
+                    if audit_collection.excluded_stop(kind, severity, details, collection_policy):
+                        accepted.append(eid)
+                        continue
+                    if kind != 'file.modified' and not excluded_internal_health_activity(kind,severity,details) and not excluded_installer_activity(kind,severity,details) and not excluded_activity(kind,details,exclusions,severity) and not excluded_application(kind,severity,details,application_exclusions) and not excluded_file_access(kind,severity,details,exclusions):
                         Store.event(db, device["id"], kind, severity, details, eid, occurred)
                     accepted.append(eid)
                 return {"accepted": accepted}, headers, mime
@@ -826,22 +916,25 @@ class Handler(BaseHTTPRequestHandler):
             if method=='POST' and path=='/api/software/close-review':return software.close_review(db,user,body),headers,mime
         if path.startswith('/api/updates'):
             if user['role']!='admin':raise APIError(403,'僅 MIS 管理員可管理 Agent 更新')
-            if self.server.endpoint_source is not None and method=='POST' and path in ('/api/updates/jobs','/api/updates/notify','/api/updates/bundled/prepare'):
+            if self.server.endpoint_source is not None and method=='POST' and path in ('/api/updates/jobs','/api/updates/jobs/preview','/api/updates/notify','/api/updates/bundled/prepare'):
                 raise APIError(409,'獨立遠端測試中心僅提供指定安裝包，尚未開放集中更新')
-            if method=='GET' and path=='/api/updates':return updates.catalog(db,self.server.update_signals,self.server.bundled_release.snapshot(),parse_qs(urlsplit(self.path).query)),headers,mime
+            if method=='GET' and path=='/api/updates':return updates.catalog(db,self.server.update_signals,self.server.bundled_release.snapshot(),parse_qs(urlsplit(self.path).query),self.server.store),headers,mime
             if path in ('/api/updates/cancel-waiting/preview','/api/updates/cancel-waiting'):
                 from . import update_progress
                 if method=='POST' and path=='/api/updates/cancel-waiting':return update_progress.cancel_waiting(db,user,body),headers,mime
                 if method=='GET' and path=='/api/updates/cancel-waiting/preview':
-                    releases=db.execute('SELECT id,version FROM update_releases').fetchall()
-                    latest=max(releases,key=lambda r:updates.packages.version(r['version']))['id'] if releases else None
+                    releases=updates.update_retention.available(db,self.server.store)
+                    latest=releases[0]['id'] if releases else None
                     filters=update_progress.parameters(db,parse_qs(urlsplit(self.path).query),latest)
                     return update_progress.preview(db,filters),headers,mime
             if method=='POST' and path=='/api/updates/bundled/prepare':
                 if body:raise APIError(400,'準備隨附版本不接受額外欄位')
                 if self.server.bundled_release.start():Store.event(db,'console','update.bundled_release_retry_requested','info',{'actor':user['username'],'version':__version__})
                 return self.server.bundled_release.snapshot(),headers,mime
-            if method=='POST' and path=='/api/updates/jobs':return updates.create_jobs(db,user,body),headers,mime
+            if method=='POST' and path=='/api/updates/jobs/preview':
+                from .update_dispatch import preview
+                return preview(db,user,body,self.server.store),headers,mime
+            if method=='POST' and path=='/api/updates/jobs':return updates.create_jobs(db,user,body,self.server.store),headers,mime
             if method=='POST' and path=='/api/updates/cancel':return updates.cancel(db,user,body),headers,mime
             if method=='POST' and path=='/api/updates/notify':return updates.notify(db,user,body,self.server.update_signals),headers,mime
             raise APIError(404,'找不到更新功能')
@@ -858,6 +951,8 @@ class Handler(BaseHTTPRequestHandler):
             if method=='POST' and path=='/api/devices/purge/retry':
                 return endpoint_purge.retry(db,user,body),headers,mime
             raise APIError(404,'找不到端點資料清除功能')
+        if method=='POST' and path=='/api/devices/uninstall/close-audit-conflict':
+            return removal.close_audit_conflict(db,user,body),headers,mime
         if method=='POST' and path=='/api/devices/uninstall':
             job=removal.request(db,user,body)
             for session in db.execute("SELECT * FROM remote_sessions WHERE device_id=? AND status IN ('requested','active')",(job['device_id'],)).fetchall():remote.close(self.server,db,session,'endpoint_uninstall')
@@ -881,10 +976,12 @@ class Handler(BaseHTTPRequestHandler):
             return {"devices": devices, "stats": stats, "policy": Store.policy(db), "server_time": now,**plane.catalog(devices)}, headers, mime
         if method=='GET' and path=='/api/device-detail':
             params=parse_qs(urlsplit(self.path).query);device_id=params.get('device_id',[''])[0]
-            row=db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at FROM devices WHERE id=?',(device_id,)).fetchone()
+            row=db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices WHERE id=?',(device_id,)).fetchone()
             if not row:raise APIError(404,'找不到端點')
             device=dict(row);device['inventory']=json.loads(device['inventory'])
             device['status']='revoked' if device['revoked'] else 'online' if time.time()-device['last_seen']<90 else 'offline'
+            device['availability']=policy_progress.availability(device)
+            device['offline_days']=policy_progress.offline_days(device)
             plane=management.ControlPlane(db);effective=plane.bundle(device)
             device['native_usb']=native_usb.snapshot(db,device['id'],effective['body']['usb_mode'])
             ext=db.execute('SELECT body,received FROM extended_status WHERE device_id=?',(device['id'],)).fetchone()
@@ -1020,7 +1117,7 @@ class Handler(BaseHTTPRequestHandler):
                     return "'" + v if v.lstrip().startswith(("=", "+", "-", "@")) else v
                 for row in rows:
                     d=row['details']
-                    writer.writerow([safe(v) for v in (row["id"], row["device_name"], row["kind"], row["severity"], row["occurred"], row["received"],d.get('user',d.get('operator','')),d.get('process',''),d.get('source_path',d.get('path','')),d.get('destination_path',''),d.get('url',''),d.get('title',''),canonical(d), row["hash"])])
+                    writer.writerow([safe(v) for v in (row["id"], row["device_name"], row["kind"], row["severity"], row["occurred"], row["received"],d.get('user',d.get('operator','')),d.get('process',''),d.get('source_path',d.get('path','')),d.get('destination_path',''),d.get('url') or d.get('domain',''),d.get('title',''),canonical(d), row["hash"])])
                 headers["Content-Disposition"] = 'attachment; filename="guarddesk-audit.csv"'
                 return ("\ufeff" + output.getvalue()).encode("utf-8"), headers, "text/csv; charset=utf-8"
             return {"items": rows, "total": total, "offset": offset, "limit": limit, "has_more":has_more if cursor_mode else offset+len(rows)<total,"next_cursor":pagination.encode(cursor_key,user['token'],filter_id,snapshot,rows[-1]['id']) if cursor_mode and has_more else None,"snapshot":snapshot if cursor_mode else None}, headers, mime
@@ -1034,7 +1131,7 @@ class Handler(BaseHTTPRequestHandler):
         if method=='POST' and path=='/api/policy/preview':
             import copy
             from .policy_preview import compare_planes
-            policy=validate_policy(body.get('body'));current=Store.policy(db)
+            current=Store.policy(db);policy=validate_policy_edit(body.get('body'), current['body'])
             if type(body.get('base_version')) is not int or body['base_version']!=current['version']:raise APIError(409,'全域預設已變更')
             plane=management.ControlPlane(db);after=copy.copy(plane)
             after.baseline={**current,'body':policy,'version':current['version']+1}
@@ -1043,8 +1140,8 @@ class Handler(BaseHTTPRequestHandler):
             return result,headers,mime
         if method == "POST" and path == "/api/policy":
             if 'expected_generation' in body and body['expected_generation']!=management.generation(db):raise APIError(409,'繼承來源已變更，請重新預覽')
-            policy = validate_policy(body.get("body"))
             current = Store.policy(db)
+            policy = validate_policy_edit(body.get("body"), current['body'])
             if type(body.get("base_version")) is not int or body["base_version"] != current["version"]:
                 raise APIError(409, "策略已被其他管理員修改，請重新整理")
             version = current["version"] + 1
@@ -1053,6 +1150,8 @@ class Handler(BaseHTTPRequestHandler):
             management.bump(db)
             Store.event(db, "console", "policy.published", "warning", {"actor": user["username"], "version": version, "body": policy})
             return Store.policy(db), headers, mime
+        if method == "POST" and path == "/api/devices/heartbeat-mode":
+            return heartbeat_mode.change(db,user,body),headers,mime
         if method == "POST" and path == "/api/devices/revoke":
             device_id = string(body, "device_id", 100)
             pending=removal.latest(db,device_id)

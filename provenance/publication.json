@@ -1,22 +1,28 @@
 {
   "format": 1,
   "snapshot": "sanitized_public_source",
-  "prepared_on": "2026-11-12",
-  "upstream_source_revision": 1773,
-  "reference_version": "0.4.108/001",
+  "prepared_on": "2026-11-24",
+  "upstream_source_revision": 1789,
+  "reference_version": "0.4.122/001",
   "public_binary_release": false,
   "private_operational_history_distributed": false,
   "source_tests": {
-    "run": 195,
-    "passed": 194,
+    "run": 534,
+    "passed": 533,
     "skipped": 1,
     "unexpected_skips": 0,
-    "receipt_sha256": "50c4077ddf7c08d8e7e59cd4faed86c8d61c1a9c55fa6deedb7f5bf5dedefe54",
-    "skip_reason": "native cohort binary fixture is not distributed"
+    "skip_details": [
+      {
+        "test": "test_mis_native_media.ModuleLifetimePinsTest.test_real_cached_module_cannot_rename_after_session_close",
+        "reason": "owned native cohort fixture unavailable"
+      }
+    ],
+    "source_input_sha256": "b143245ef3f2a05e72ee3aff8b6084a61f4d4f1a1a16e29dcc8b428660f80a5d",
+    "receipt_sha256": "20dc9791a34cae28b77a809ce65275f86530c64cdd989471e6a867873eaa726c"
   },
   "development_tool_tests": {
-    "run": 26,
-    "passed": 26,
+    "run": 31,
+    "passed": 31,
     "errors": 0,
     "failures": 0,
     "validated_in_this_publication": true
@@ -25,27 +31,28 @@
     "historical_count": 34,
     "historical_public_commit": "e5fa8b16fb431e346264ce900f3da02b9430c6dd",
     "rerun_for_this_publication": false,
-    "reason": "Previously reviewed fixture sanitization retained; current changed source tested by the195case inventory and syntax/static review"
+    "reason": "Historical separate run retained for provenance. Current offline coverage and the public skip are recorded under source_tests."
   },
   "private_identity_and_credential_pattern_review": {
     "passed": true,
-    "scope": "names, accounts, host aliases, deployment addresses, domain SID, local/share paths, device IDs, private-key and access-token patterns; not an exhaustive security audit"
+    "scope": "Changed paths and public text checked for known site identifiers, local and network paths, credential patterns, and excluded artifact types."
   },
   "third_party_license_texts_preserved": true,
   "license_generator_metadata_redacted": true,
   "additional_pinned_IJG_notice_sha256": "db16a04128171879c60708d171b88d97345a2dd20f9bfc173680a4497c73f704",
-  "native_source_changes": "Upstream108 functional changes plus previously reviewed generic comments/fixture labels; not rebuilt for this public snapshot",
+  "native_source_changes": "Includes endpoint service recovery and document-audit changes through 0.4.122. Public native binaries were not built for this publication.",
   "full_management_package_built_from_public_snapshot": false,
   "private_historical_release_artifacts_distributed": false,
   "local_center_started": false,
   "Agent_installed": false,
   "Defender_or_OS_protection_changed": false,
-  "SVN_source_changed": true,
+  "SVN_source_changed": false,
   "field_changed": false,
   "signed": false,
   "deployable": false,
-  "previous_public_commit": "e5fa8b16fb431e346264ce900f3da02b9430c6dd",
+  "previous_public_commit": "6d1b3461c07ceeb4566133ae0c9d3d09514f2751",
   "public_bytes_equal_internal_release": false,
-  "upstream_owner_reported_functional_acceptance": true,
-  "upstream_baseline_tag_revision": 1774
+  "upstream_owner_reported_functional_acceptance": false,
+  "upstream_baseline_tag_revision": 1790,
+  "upstream_owner_designated_internal_baseline": true
 }

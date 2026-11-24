@@ -22,6 +22,11 @@ def verify_zip(path,expected):
 
 def package(root,stage,run,receipt,version,revision,env):
     root=Path(root).resolve();run=contained(root,run);receipt=contained(root,receipt)
+    baseline=json.loads((root/'CURRENT-BASELINE.json').read_text(encoding='utf-8'))
+    contract=json.loads((root/'DEVELOPMENT-BASELINE.json').read_text(encoding='utf-8'))
+    if contract['accepted_version']!=baseline['version'] or contract['accepted_revision']!=baseline['revision']:
+        raise ValueError('Development baseline contract differs; reconcile before packaging')
+    accepted_baseline=baseline['version']+'/'+baseline['revision']
     build=json.loads(receipt.read_text(encoding='utf-8'));product=receipt.parent/'product/GuardDesk'
     if not build.get('passed') or not build.get('source_stable') or build.get('version')!=version:
         raise ValueError('Exact stable passing build required')
@@ -43,7 +48,7 @@ def package(root,stage,run,receipt,version,revision,env):
     spec=importlib.util.spec_from_file_location('management_cmd_template',stage/'tools/package_management_094_002.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     info={'format':1,'version':version,'packaging_revision':revision,'cohort':build['cohort'],
-        'internal_trial':True,'signed':False,'deployable':False,'accepted_baseline':'0.4.105/001',
+        'internal_trial':True,'signed':False,'deployable':False,'accepted_baseline':accepted_baseline,
         'paired_Agent_and_MIS_required':True,'automatic_installation_performed':False,
         'local_center_started':False,'source_build_receipt_sha256':digest(receipt),
         'preparation_source_sha256':digest(source),'preparation_helper_sha256':digest(helper)}
@@ -57,7 +62,23 @@ def package(root,stage,run,receipt,version,revision,env):
 Server更新後，從該中心下載配套Agent及MIS；Server本身不會更新已安裝的端點。
 原生遠端、服務、授權與cohort必須整套匹配，不能單換DLL。
 
-沿用0.4.105/001內部功能基準；本次建置驗證詳見開發收據。
+Agent故障恢復（112起）：worker異常有限重試；進入hold時固定服務改為Disabled，
+阻止舊111更新器自動回復後重新執行。正常停止、更新、移除不觸發復原。
+MIS在端點的管理員命令提示字元使用已安裝的服務工具（不要用解壓目錄副本）：
+  "C:\\Program Files\\GuardDeskPilot\\USBControl\\_internal\\GuardDeskService.exe" --recovery-status --device-id <24碼裝置ID>
+先保存狀態、worker-fault.log與worker-exit.json（若存在），確認故障／公司防護狀態。
+服務須已停止；一般故障經檢查後使用：
+  "C:\\Program Files\\GuardDeskPilot\\USBControl\\_internal\\GuardDeskService.exe" --recovery-reset --device-id <24碼裝置ID> --review fault
+安全hold會拒絕fault；僅在MIS／資安確認防護問題已處理後，改用 --review security。
+這是具名管理員的審查聲明，不會放行Defender、還原隔離或更改公司防護。
+工具先存受保護的service-recovery-review-*.bin（最多16份，保留原因／時間及原marker），
+再清除本次hold及重試預留並設回Auto；不刪身分、設定或未送資料，也不自動啟動。
+輸出reset_completed=true後，由MIS執行 sc start GuardDeskRemote，持續核對一般／原生心跳。
+若要求提升權限、資料損毀／不受信任、時鐘回退、review檔達上限或操作失敗，
+保留現況交MIS處理；不要刪狀態檔清鎖。回復111必須先完成相同受控審查，
+再按完整版本維護流程處理；不得自行改Auto或單換舊EXE來繞過hold。
+
+沿用{accepted_baseline}內部訂版基準及其後累積修正；本次建置驗證詳見開發收據。
 本候選包尚未經使用者現場驗收，也不會自動取代目前訂版。
 未簽章，只供內部試用。離線測試及正常Defender掃描不代表公司端點永不告警。
 公司防護阻擋時停止擴大部署、保留證據，不還原隔離或新增排除。

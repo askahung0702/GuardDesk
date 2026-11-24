@@ -9,9 +9,11 @@ from .management import ManagementError
 
 def catalog(db,plane):
     devices=[];now=time.time()
-    for row in db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at FROM devices ORDER BY last_seen DESC'):
+    for row in db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices ORDER BY last_seen DESC'):
         device=dict(row);device['inventory']=json.loads(device['inventory'])
         device['status']='revoked' if device['revoked'] else 'online' if now-device['last_seen']<90 else 'offline'
+        device['availability']=policy_progress.availability(device,now)
+        device['offline_days']=policy_progress.offline_days(device,now)
         effective=plane.bundle(device)
         device['native_usb']=native_usb.snapshot(db,device['id'],effective['body']['usb_mode'])
         ext=db.execute('SELECT body,received FROM extended_status WHERE device_id=?',(device['id'],)).fetchone()

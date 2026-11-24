@@ -40,6 +40,7 @@ class Service:
             'StartServiceW':([w.HANDLE,w.DWORD,w.LPVOID],w.BOOL),
             'ControlService':([w.HANDLE,w.DWORD,w.LPVOID],w.BOOL),
             'DeleteService':([w.HANDLE],w.BOOL),
+            'ChangeServiceConfigW':([w.HANDLE,w.DWORD,w.DWORD,w.DWORD,w.LPCWSTR,w.LPCWSTR,w.LPVOID,w.LPCWSTR,w.LPCWSTR,w.LPCWSTR,w.LPCWSTR],w.BOOL),
             'SetServiceObjectSecurity':([w.HANDLE,w.DWORD,w.LPVOID],w.BOOL),
             'ConvertStringSecurityDescriptorToSecurityDescriptorW':([w.LPCWSTR,w.DWORD,ctypes.POINTER(w.LPVOID),w.LPVOID],w.BOOL),
             'QueryServiceObjectSecurity':([w.HANDLE,w.DWORD,w.LPVOID,w.DWORD,ctypes.POINTER(w.DWORD)],w.BOOL),
@@ -89,20 +90,38 @@ class Service:
             mask=ctypes.c_uint32.from_address(ace.value+4).value
             if mask & ~0x2008d and not trusted(ace.value+8):raise PermissionError('Service can be changed by untrusted identity')
 
-    def read(self,handle):
+    def _configuration(self,handle,allow_disabled=False):
         size=w.DWORD();self.api.QueryServiceConfigW(handle,None,0,ctypes.byref(size))
         if not 0<size.value<=65536:raise OSError('Service configuration query failed')
         data=ctypes.create_string_buffer(size.value)
         if not self.api.QueryServiceConfigW(handle,data,size,ctypes.byref(size)):raise ctypes.WinError(ctypes.get_last_error())
         cfg=ctypes.cast(data,ctypes.POINTER(Config)).contents
-        if cfg.type!=0x10 or cfg.start!=2 or cfg.account!='LocalSystem' or cfg.dependencies or cfg.group:
+        if cfg.type!=0x10 or cfg.start not in ((2,4) if allow_disabled else (2,)) or cfg.account!='LocalSystem' or cfg.dependencies or cfg.group:
             raise PermissionError('Service type/account/start contract mismatch')
         match=re.fullmatch(r'(?:"[^"\r\n]+\\GuardDeskService\.exe"|[^\s"]+\\GuardDeskService\.exe) --device-id ([0-9a-f]{24})',cfg.binary or '')
         if not match:raise PermissionError('Service binary contract mismatch')
-        return {'kind':'remote-service-v1','device_id':match[1],'binary':cfg.binary}
+        return {'kind':'remote-service-v1','device_id':match[1],'binary':cfg.binary},cfg.start
+
+    def read(self,handle,allow_disabled=False):return self._configuration(handle,allow_disabled)[0]
+
+    def disable_for_recovery(self,expected):
+        # Fixed installed service only. Fence before persisting a helper AV hold,
+        # preserving live existing helpers while blocking old111/reboot starts.
+        with self.opened(3) as handle:
+            current,start=self._configuration(handle,allow_disabled=True)
+            if current!=expected:raise PermissionError('Recovery fence service identity mismatch')
+            if start!=4 and not self.api.ChangeServiceConfigW(handle,0xffffffff,4,0xffffffff,None,None,None,None,None,None,None):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if self._configuration(handle,allow_disabled=True)!=(expected,4):raise PermissionError('Recovery fence readback mismatch')
+
+    def recovery_disabled(self,expected):
+        with self.opened(1) as handle:
+            current,start=self._configuration(handle,allow_disabled=True)
+            if current!=expected:raise PermissionError('Recovery query service identity mismatch')
+            return start==4
 
     def query(self):
-        with self.opened(1,missing=True) as handle:return self.read(handle) if handle else None
+        with self.opened(1,missing=True) as handle:return self.read(handle,allow_disabled=True) if handle else None
 
     def state(self,handle):
         value=Status();size=w.DWORD()
@@ -134,7 +153,7 @@ class Service:
     def action(self,expected,action):
         access={'start':0x14,'stop':0x24,'delete':0x10004}[action]|1
         with self.opened(access) as handle:
-            if self.read(handle)!=expected:raise PermissionError('Service changed before action')
+            if self.read(handle,allow_disabled=action!='start')!=expected:raise PermissionError('Service changed before action')
             state=self.state(handle)
             if action=='start':
                 if state.state==4:return
@@ -156,7 +175,7 @@ class Service:
         # Decommissioned worker reports its durable final ACK before exiting.
         # DeleteService only marks this running, fixed service for deletion.
         with self.opened(0x10001) as handle:
-            if self.read(handle)!=expected:raise PermissionError('Service retirement identity mismatch')
+            if self.read(handle,allow_disabled=True)!=expected:raise PermissionError('Service retirement identity mismatch')
             if not self.api.DeleteService(handle):raise ctypes.WinError(ctypes.get_last_error())
 
 
@@ -198,6 +217,9 @@ def platform():
             if not self.native_name(name):return super().delete(name)
             if self.native_name(name) and self.service.query():self.service.action(self.expected,'delete')
             elif ('\\'+name).casefold() in {n.casefold() for n in super().names()}:super().delete(name)
+        def guard_recovery_rollback(self):
+            if self.service.query() and self.service.recovery_disabled(self.expected):
+                raise PermissionError('Recovery hold requires MIS review; preserve current programs and journal')
         def register(self,name,raw,directory):
             if not self.native_name(name):return super().register(name,raw,directory)
             if isinstance(raw,dict):
@@ -213,6 +235,7 @@ def platform():
                 self.service.create(raw)
             else:
                 # Original task XML is retained by transaction; restore only it.
+                self.guard_recovery_rollback()
                 if self.service.query():self.service.action(self.expected,'delete')
                 super().register(name,raw,directory)
     return ServiceWindows()

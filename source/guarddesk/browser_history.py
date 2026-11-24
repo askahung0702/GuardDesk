@@ -101,12 +101,17 @@ class BrowserHistory:
             if not has_policy:
                 self.agent.feature_status['browser_history'] = {'status': 'waiting_policy'}
                 return
-        enabled = self.agent.policy_for_user(self.user)['body']['browser_audit'] and not saved(self.agent)
+        policy = self.agent.policy_for_user(self.user)['body']
+        enabled = policy['browser_audit'] and not saved(self.agent)
         from .custom_client import effective_body,build_number
         from .custom_settings import compatibility_modules
         if 'browser_history' in compatibility_modules(effective_body(self.agent),build_number()):enabled=False
-        if not session or session['enabled'] != enabled:
+        changed = not session or session['enabled'] != enabled
+        if changed:
             session = {'enabled': enabled, 'since': time.time(), 'generation': secrets.token_hex(12)}
+        detail = policy.get('browser_visit_detail', 'domain')
+        if changed or session.get('visit_detail') != detail:
+            session.update(visit_detail=detail, detailed_since=time.time() if enabled and detail=='detailed' else None)
             with self.agent.db() as db:
                 db.execute("INSERT OR REPLACE INTO state VALUES ('browser_history_session',?)", (canonical(session),))
         if not enabled:
@@ -124,7 +129,7 @@ class BrowserHistory:
             browser, profile, path = self.profiles[self.offset % len(self.profiles)]
             self.offset += 1
             try:
-                self.results[(browser, profile)] = self.read_profile(browser, profile, path, session)
+                self.results[(browser, profile)] = self.read_profile(browser, profile, path, session, policy)
             except SnapshotUnavailable as exc:
                 previous = self.results.get((browser, profile), {})
                 if str(exc) == 'snapshot_retry_30_seconds' and previous.get('status') == 'collecting':
@@ -140,11 +145,11 @@ class BrowserHistory:
         self.agent.feature_status['browser_history'] = {
             'status': status, 'checked_at': time.time(), 'profiles': statuses,
             'profiles_truncated': self.truncated, 'interval_seconds': INTERVAL,
-            'source': 'browser_history', 'coverage': 'saved_normal_visits_only',
+            'source': 'browser_history', 'coverage': 'saved_normal_visits_only', 'visit_detail': policy.get('browser_visit_detail', 'domain'),
             'since': session['since'], 'manual_browser_setup': False,
         }
 
-    def read_profile(self, browser, profile, path, session):
+    def read_profile(self, browser, profile, path, session, policy):
         identity = hashlib.sha256((self.user + '\0' + browser + '\0' + str(path)).encode()).hexdigest()
         key = 'browser_history:' + identity
         with self.agent.db() as db:
@@ -185,12 +190,16 @@ class BrowserHistory:
                 first_id = source.execute('SELECT min(id) FROM visits WHERE visit_time>=?', (chrome_time(cursor['since']),)).fetchone()[0]
             where = 'v.id>?'
             value = cursor['last_id'] if cursor['last_id'] else (first_id-1 if first_id is not None else 9223372036854775807)
+            detailed = policy.get('browser_visit_detail') == 'detailed'
+            title_column = 'CASE WHEN v.visit_time>=? THEN substr(u.title,1,500) END' if detailed else 'NULL'
+            title_args = (chrome_time(session['detailed_since']),) if detailed else ()
             rows = source.execute(
-                'SELECT v.id,v.visit_time,substr(u.url,1,8193),substr(u.title,1,500),v.transition '
+                f'SELECT v.id,v.visit_time,substr(u.url,1,8193),{title_column},v.transition '
                 'FROM visits v JOIN urls u ON u.id=v.url' + join +
                 ' WHERE ' + where + ' AND ' + remote + 'v.visit_time>=?' + local +
-                ' ORDER BY v.id LIMIT ?', (value, chrome_time(cursor['since']), BATCH)).fetchall()
+                ' ORDER BY v.id LIMIT ?', (*title_args, value, chrome_time(cursor['since']), BATCH)).fetchall()
         from .browser_host import sanitize_url
+        from .audit_collection import domain_visit
         count = 0
         with self.agent.db() as db:
             for visit_id, timestamp, url, title, transition in rows:
@@ -200,18 +209,22 @@ class BrowserHistory:
                 # Exclude subframes and generated keyword result visits.
                 if (transition & 255) in (3, 4, 10) or not 0 <= occurred <= time.time() + 300:
                     continue
-                try:
-                    safe = sanitize_url(url)
-                except (ValueError, TypeError):
-                    continue
-                if not safe:
-                    continue
-                safe_url, domain = safe
+                details = {'url': url, 'user': self.user, 'browser': browser,
+                           'source': 'browser_history', 'coverage': 'saved_visit'}
+                if detailed and occurred >= session['detailed_since']:
+                    try:
+                        safe = sanitize_url(url)
+                    except (ValueError, TypeError):
+                        continue
+                    if not safe:
+                        continue
+                    details.update(url=safe[0], domain=safe[1], title=title or '', profile=profile, visit_id=visit_id)
+                else:
+                    details = domain_visit(details)
+                    if details is None:
+                        continue
                 eid = 'history-' + hashlib.sha256((identity + cursor['generation'] + str(visit_id)).encode()).hexdigest()
-                self.agent.queue('web.navigation', {'url': safe_url, 'domain': domain, 'title': title or '',
-                    'user': self.user, 'browser': browser, 'profile': profile,
-                    'source': 'browser_history', 'coverage': 'saved_visit', 'visit_id': visit_id},
-                    occurred=occurred, event_id=eid, db=db)
+                self.agent.queue('web.navigation', details, occurred=occurred, event_id=eid, db=db)
                 count += 1
             db.execute('INSERT OR REPLACE INTO state VALUES (?,?)', (key, canonical(cursor)))
         return {'status': 'collecting', 'last_poll': time.time(), 'queued': count, 'more': len(rows) == BATCH,

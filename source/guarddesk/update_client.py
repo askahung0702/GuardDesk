@@ -1,8 +1,10 @@
 """Verified downloads and resumable local update transactions; no server shell."""
+import http.client
 import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import threading
@@ -10,12 +12,16 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
+from contextlib import nullcontext
 from . import __version__
 from .endpoint_transport import transport
 from .serialization import canonical
+from .transport_errors import CenterTransportError
 from . import update_packages as packages
 
 class RetryUpdate(ConnectionError):pass
+
+SWITCH_PHASES = ('stopping','old_moved','switching','restarting')
 
 
 def failure_details(stage,exc):
@@ -67,38 +73,79 @@ def save(path,body):
 def validate_job(envelope,pinned,device_id,now=None):
     job=packages.verify(envelope,pinned);now=time.time() if now is None else now
     fields={'id','device_id','release_id','created','not_before','expires','allow_downgrade','release'}
-    if not isinstance(job,dict) or set(job)!=fields or job['device_id']!=device_id or not isinstance(job['id'],str) or not re.fullmatch('[0-9a-f]{32}',job['id']):raise ValueError('更新工作不屬於本端點')
+    if not isinstance(job,dict) or set(job)-{'transfer_role'}!=fields or job['device_id']!=device_id or not isinstance(job['id'],str) or not re.fullmatch('[0-9a-f]{32}',job['id']):raise ValueError('更新工作不屬於本端點')
     if any(type(job[k]) not in (int,float) for k in ('created','not_before','expires')) or not job['created']<=now+120 or not job['not_before']<=now+120 or not now<job['expires'] or job['expires']-job['created']>38*86400 or job['allow_downgrade'] not in (0,1):raise ValueError('更新工作時間或回復授權不正確')
+    if 'transfer_role' in job and job['transfer_role'] not in ('native','main'):raise ValueError('更新下載元件不正確')
     manifest=packages.validate_manifest(packages.verify(job['release'],pinned))
     if manifest['sha256']!=job['release_id']:raise ValueError('更新工作與發布雜湊不符')
     return job,manifest
 
 
+def partial_path(target,job,manifest):
+    role=job.get('transfer_role')
+    return packages.plain(target.with_suffix(f'.{role}.{manifest["sha256"]}.part' if role else '.part'))
+
+
 def download(agent,job,manifest,target,stop=None,rate=1024*1024):
-    target=packages.plain(target);partial=packages.plain(target.with_suffix('.part'))
-    if target.exists() and target.stat().st_size==manifest['bytes'] and packages.file_hash(target)==manifest['sha256']:return target
-    if shutil.disk_usage(target.parent).free<manifest['bytes']+1024*1024*1024:raise OSError('更新磁碟可用空間不足，保留舊版')
-    opener=transport(agent.config['server'],agent.config.get('ca'))
-    request=urllib.request.Request(agent.config['server'].rstrip('/')+'/api/agent/updates/download?job_id='+job['id'],headers={'Authorization':'Bearer '+agent.config['token']})
-    started=time.monotonic();count=0
+    target=packages.plain(target)
+    role=job.get('transfer_role')
+    partial=partial_path(target,job,manifest)
+    size=manifest['bytes'];expected=manifest['sha256']
+    if target.exists() and target.stat().st_size==size and packages.file_hash(target)==expected:return target
+    offset=partial.stat().st_size if role and partial.exists() else 0
+    if offset>size:
+        partial.unlink();raise ValueError('部分更新檔長度不正確')
+    if shutil.disk_usage(target.parent).free<size-offset+1024*1024*1024:raise OSError('更新磁碟可用空間不足，保留舊版')
+    headers={'Authorization':'Bearer '+agent.config['token']}
+    url=agent.config['server'].rstrip('/')+'/api/agent/updates/download?job_id='+job['id']
+    if role:url+='&role='+role
+    if 0<offset<size:headers['Range']=f'bytes={offset}-'
+    started=time.monotonic();count=offset
     try:
-        with opener.open(request,timeout=15) as response,partial.open('wb') as output:
-            if response.headers.get('Content-Length')!=str(manifest['bytes']):raise ValueError('更新下載長度不符')
-            while chunk:=response.read(65536):
-                if stop and stop.is_set():raise OSError('更新已停止，保留舊版')
-                count+=len(chunk)
-                if count>manifest['bytes'] or time.monotonic()-started>1200:raise ValueError('更新下載超過限制')
-                output.write(chunk)
-                delay=count/rate-(time.monotonic()-started)
-                if delay>0:
-                    if stop:stop.wait(min(delay,.2))
-                    else:time.sleep(min(delay,.2))
-        if count!=manifest['bytes'] or packages.file_hash(partial)!=manifest['sha256']:raise ValueError('更新下載不完整或雜湊不符')
+        if offset<size:
+            opener=transport(agent.config['server'],agent.config.get('ca'))
+            request=urllib.request.Request(url,headers=headers)
+            with opener.open(request,timeout=15) as response:
+                if offset:
+                    if response.status==200:count=offset=0
+                    elif response.status!=206 or response.headers.get('Content-Range')!=f'bytes {offset}-{size-1}/{size}':
+                        raise ValueError('更新續傳範圍不符')
+                elif role and response.status!=200:
+                    raise ValueError('更新下載回應不正確')
+                if response.headers.get('Content-Length')!=str(size-offset):raise ValueError('更新下載長度不符')
+                with partial.open('ab' if offset else 'wb') as output:
+                    while count<size:
+                        if stop and stop.is_set():raise RetryUpdate('更新下載已暫停')
+                        if time.monotonic()-started>1200:raise RetryUpdate('更新下載已暫停，等候重試')
+                        try:chunk=response.read(min(65536,size-count))
+                        except http.client.IncompleteRead as exc:chunk=exc.partial
+                        if not chunk:raise RetryUpdate('下載暫時中斷，連線恢復後重試')
+                        count+=len(chunk)
+                        if count>size:raise ValueError('更新下載超過套件長度')
+                        output.write(chunk)
+                        delay=(count-offset)/rate-(time.monotonic()-started)
+                        if delay>0:
+                            if stop:stop.wait(min(delay,.2))
+                            else:time.sleep(min(delay,.2))
+        if count!=size or packages.file_hash(partial)!=expected:raise ValueError('更新下載不完整或雜湊不符')
         os.replace(partial,target)
         return target
-    except (urllib.error.URLError,TimeoutError,ConnectionResetError,BrokenPipeError):
+    except urllib.error.HTTPError as exc:
+        code=exc.code
+        exc.close()
+        if code in (408,423,429,502,503,504):
+            if not role:partial.unlink(missing_ok=True)
+            raise RetryUpdate('等候下載名額或管理中心連線') from None
         partial.unlink(missing_ok=True)
-        raise RetryUpdate('更新下載暫時中斷，原版本繼續運作') from None
+        raise
+    except (RetryUpdate,urllib.error.URLError,TimeoutError,ConnectionResetError,ConnectionAbortedError,
+            BrokenPipeError,http.client.RemoteDisconnected) as exc:
+        if isinstance(exc,urllib.error.URLError) and isinstance(exc.reason,ssl.SSLError):
+            partial.unlink(missing_ok=True)
+            raise
+        if not role:partial.unlink(missing_ok=True)
+        if isinstance(exc,RetryUpdate):raise
+        raise RetryUpdate('下載暫時中斷，連線恢復後重試') from None
     except Exception:
         partial.unlink(missing_ok=True)
         raise
@@ -142,19 +189,31 @@ def storage_budget(roots,incoming):
 
 class Transaction:
     """Adapters restrict the privilege boundary; journal is outside program dirs."""
-    def __init__(self,agent,role,adapter):
+    def __init__(self,agent,role,adapter,*,coordination=None):
         self.agent=agent;self.role=role;self.adapter=adapter
+        self.coordination=coordination or nullcontext
         self.root=packages.plain(agent.config_path.parent/'updates');self.root.mkdir(exist_ok=True)
         self.journal=self.root/('transaction-'+role+'.json')
 
     def report(self,job,state,version,error=''):
-        return self.agent.call('/api/agent/updates/status',{'job_id':job['id'],'role':self.role,'state':state,'version':version,'error':error[:250]})
+        try:
+            reply=self.agent.call('/api/agent/updates/status',{'job_id':job['id'],'role':self.role,'state':state,'version':version,'error':error[:250]})
+        except CenterTransportError as exc:
+            if exc.category not in ('temporary_network','network_unclassified','invalid_reply') and exc.http_status not in (408,423,429,502,503,504):raise
+            raise RetryUpdate('等候管理中心重新確認更新狀態') from None
+        except (ConnectionError,TimeoutError,json.JSONDecodeError,UnicodeDecodeError,http.client.IncompleteRead):
+            raise RetryUpdate('等候管理中心重新確認更新狀態') from None
+        if not isinstance(reply,dict) or reply.get('ok') is not True:
+            raise RetryUpdate('等候管理中心確認更新狀態')
+        return reply
 
     def write(self,state):save(self.journal,state)
 
     def finish(self,state,phase,version,error=''):
         state.update(phase=phase,version=version,error=error[:250],reported=False);self.write(state)
-        self.report(state['job'],phase,version,error);state['reported']=True;self.write(state)
+        try:self.report(state['job'],phase,version,error)
+        except RetryUpdate:return
+        state['reported']=True;self.write(state)
         self.receipt(state)
 
     def receipt(self,state):
@@ -175,26 +234,41 @@ class Transaction:
                 state['reported']=True;self.write(state)
             self.receipt(state)
             return
-        if state['phase'] in ('stopping','old_moved','switching','restarting'):
-            if self.adapter.health(state['target'],state['started'],timeout=2):self.finish(state,'healthy',state['target'])
-            else:
-                self.adapter.rollback(state)
-                self.finish(state,'rolled_back',state['old_version'],failure_message(state['failure']) if state.get('failure') else '更新中斷，已回復前一版')
+        if state['phase'] in ('authorizing','prepared') and state['job']['expires']<=time.time():
+            self.finish(state,'failed',state['old_version'],'更新工作已過期，舊版持續運作')
+            return
+        if state['phase'] in SWITCH_PHASES:
+            with self.coordination():
+                if self.adapter.health(state['target'],state['started'],timeout=2):self.finish(state,'healthy',state['target'])
+                else:
+                    self.adapter.rollback(state)
+                    self.finish(state,'rolled_back',state['old_version'],failure_message(state['failure']) if state.get('failure') else '更新中斷，已回復前一版')
 
     def apply(self,envelope):
+        with self.coordination():return self._apply(envelope)
+
+    def _apply(self,envelope):
         job,manifest=validate_job(envelope,self.agent.config['update_key'],self.agent.config['device_id'])
+        if job.get('transfer_role',self.role)!=self.role:raise ValueError('更新工作的下載元件不符')
         previous=None
         if self.journal.is_file():
             previous=json.loads(self.journal.read_text(encoding='utf-8'))
             if previous['job']['created']>job['created']:raise ValueError('拒絕重播舊更新工作')
-            if previous['job']['id']==job['id'] and previous['phase'] in ('healthy','rolled_back','failed'):return
+            if previous['phase'] in SWITCH_PHASES:
+                raise RetryUpdate('等候原更新交易完成復原')
+            if previous['phase'] in ('healthy','rolled_back','failed'):
+                if previous['job']['id']==job['id']:return
+                if not previous.get('reported'):
+                    raise RetryUpdate('等候原更新結果補報')
         current=self.adapter.current()
         if packages.version(manifest['version'])<packages.version(current) and not job['allow_downgrade']:raise ValueError('需要 MIS 明確勾選回復舊版')
         if current==manifest['version'] and self.adapter.health(current,0,timeout=2):
             self.report(job,'healthy',current);return
         directory=packages.plain(self.root/job['id']);directory.mkdir(exist_ok=True)
-        state={'job':job,'phase':'downloading','old_version':current,'target':manifest['version'],'started':time.time(),'reported':False}
-        self.write(state);self.report(job,'downloading',current)
+        resuming_authorization=bool(previous and previous['job']['id']==job['id'] and previous['phase']=='authorizing')
+        state=previous if resuming_authorization else {'job':job,'phase':'downloading','old_version':current,'target':manifest['version'],'started':time.time(),'reported':False}
+        if not resuming_authorization:
+            self.write(state);self.report(job,'downloading',current)
         operation='preflight'
         try:
             # Retry the existing post-health cleanup before the next download.
@@ -206,20 +280,29 @@ class Transaction:
             try:state['pruned_caches']=prune(self.root,job['id'],self.role=='native')
             except (OSError,ValueError):state['cleanup_deferred']=True
             self.write(state)
-            storage_budget([self.root],manifest['bytes'])
-            operation='download';download(self.agent,job,manifest,directory/'package.zip')
+            archive_path=packages.plain(directory/'package.zip')
+            remaining=manifest['bytes']
+            if archive_path.is_file() and archive_path.stat().st_size==remaining and packages.file_hash(archive_path)==manifest['sha256']:
+                remaining=0
+            elif job.get('transfer_role'):
+                partial=partial_path(archive_path,job,manifest)
+                if partial.is_file():remaining=max(0,remaining-partial.stat().st_size)
+            storage_budget([self.root],remaining)
+            operation='download';download(self.agent,job,manifest,archive_path)
             operation='archive_verify'
             if packages.file_hash(directory/'package.zip')!=manifest['sha256']:raise ValueError('更新下載已被修改，未停止舊版')
             import zipfile
             with zipfile.ZipFile(directory/'package.zip') as archive:
                 packages.inspect_zip(archive,manifest['files']);incoming=sum(i.file_size for i in archive.infolist())
-            operation='capacity';self.adapter.budget(incoming)
-            self.report(job,'verifying',current)
-            operation='extract';stage=self.adapter.stage(job)
+            operation='capacity';stage=self.adapter.stage(job)
+            self.adapter.budget(0 if stage.exists() else incoming)
+            if not resuming_authorization:self.report(job,'verifying',current)
+            operation='extract'
             if not stage.exists():packages.extract(directory/'package.zip',manifest,stage)
             operation='verify';verify_tree(stage,manifest);self.adapter.validate_stage(stage)
             # Freeze cancellation before executing even the candidate's probe.
-            operation='authorize';self.report(job,'applying',current)
+            operation='authorize';state.update(stage=str(stage),phase='authorizing');self.write(state)
+            self.report(job,'applying',current)
             operation='probe'
             if self.adapter.probe(stage)!=manifest['version']:raise ValueError('程式實際版本與發布版本不符')
             state.update(stage=str(stage),phase='prepared');self.write(state)
@@ -265,6 +348,7 @@ class Transaction:
             self.finish(state,'rolled_back',current,failure_message(state['failure']))
             return
         self.finish(state,'healthy',manifest['version'])
+        if not state['reported']:return
         try:
             self.adapter.cleanup(state)
             for old in self.root.iterdir():
@@ -346,19 +430,23 @@ def apply_user(config,jid):
     with instance(str(agent.config_path)+'.update') as acquired,background_work():
         if not acquired:return
         transaction=Transaction(agent,'main',UserAdapter(agent));transaction.recover()
+        if transaction.journal.is_file():
+            previous=json.loads(transaction.journal.read_text(encoding='utf-8'))
+            if previous['job']['id']==jid and previous['phase'] in ('healthy','rolled_back','failed'):
+                return
         path=packages.plain(transaction.root/jid/'job.json')
         if path.stat().st_size>600*1024:raise ValueError('更新工作過大')
         envelope=json.loads(path.read_text(encoding='utf-8'))
         try:transaction.apply(envelope)
-        except RetryUpdate:
+        except RetryUpdate as exc:
             try:
                 job,_=validate_job(envelope,agent.config['update_key'],agent.config['device_id'])
-                transaction.report(job,'waiting',__version__,'下載暫時中斷，連線恢復後重試')
+                transaction.report(job,'waiting',__version__,str(exc))
             except ConnectionError:pass
             return
         except Exception:
             state=json.loads(transaction.journal.read_text(encoding='utf-8')) if transaction.journal.is_file() else {}
-            if state.get('phase') in ('healthy','rolled_back'):return
+            if state.get('phase') in ('healthy','rolled_back',*SWITCH_PHASES):return
             try:
                 job,_=validate_job(envelope,agent.config['update_key'],agent.config['device_id'])
                 transaction.report(job,'failed',__version__,state.get('error') or '一般 Agent 更新未完成，保留日誌與安裝身分，請 MIS 檢查')
@@ -371,6 +459,28 @@ class UserPoller(threading.Thread):
         from .remote_trial import reject
         reject('Automatic user update')
         super().__init__(daemon=True);self.agent=agent;self.stop=stop;self.child=None
+
+    def start_child(self,jid):
+        if not isinstance(jid,str) or not re.fullmatch('[0-9a-f]{32}',jid):
+            raise ValueError('更新工作識別碼不正確')
+        exe=Path(sys.executable).resolve()
+        if getattr(sys,'frozen',False) and exe.name=='GuardDeskAgent.exe':
+            self.child=subprocess.Popen([str(exe),'apply-user-update','--config',str(self.agent.config_path),'--job-id',jid],creationflags=subprocess.CREATE_NO_WINDOW,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
+    def reconcile(self,journal):
+        from .desktop_agent import instance
+        with instance(str(self.agent.config_path)+'.update') as acquired:
+            if not acquired:return False
+            state=json.loads(journal.read_text(encoding='utf-8'))
+            if state['phase'] not in SWITCH_PHASES:
+                Transaction(self.agent,'main',UserAdapter(self.agent)).recover()
+                return True
+            jid=state['job']['id']
+        # Rollback can stop this desktop agent. Only its independent updater
+        # may perform it; that process acquires the mutex and rereads the journal.
+        self.start_child(jid)
+        return False
+
     def run(self):
         from .update_notify import Waiter,diagnostic
         if not self.agent.config.get('update_key'):diagnostic(self.agent,'main','update_key_missing');return
@@ -379,7 +489,11 @@ class UserPoller(threading.Thread):
         while not self.stop.is_set():
             if self.child and self.child.poll() is None:self.stop.wait(1);continue
             try:
-                reply=self.agent.call('/api/agent/updates/poll',{'role':'main','version':__version__})
+                journal=packages.plain(self.agent.config_path.parent/'updates'/'transaction-main.json')
+                if journal.is_file() and not self.reconcile(journal):
+                    self.stop.wait(5)
+                    continue
+                reply=self.agent.call('/api/agent/updates/poll',{'role':'main','version':__version__,'resume_protocol':True})
                 if reply.get('job'):
                     job,manifest=validate_job(reply['job'],self.agent.config['update_key'],self.agent.config['device_id'])
                     if manifest['version']==__version__:
@@ -387,8 +501,6 @@ class UserPoller(threading.Thread):
                     else:
                         root=packages.plain(self.agent.config_path.parent/'updates');root.mkdir(exist_ok=True)
                         directory=packages.plain(root/job['id']);directory.mkdir(exist_ok=True);save(directory/'job.json',reply['job'])
-                        exe=Path(sys.executable).resolve()
-                        if getattr(sys,'frozen',False) and exe.name=='GuardDeskAgent.exe':
-                            self.child=subprocess.Popen([str(exe),'apply-user-update','--config',str(self.agent.config_path),'--job-id',job['id']],creationflags=subprocess.CREATE_NO_WINDOW,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                        self.start_child(job['id'])
             except Exception:diagnostic(self.agent,'main','transport_failed')
             waiter.wait(self.agent,self.stop)

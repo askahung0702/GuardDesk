@@ -520,6 +520,14 @@ def transaction(config,settings,action,source,ops,*,remote_test=False):
     except Exception as original:
         failed_stage=current_phase[0]
         errors=[]
+        guard=getattr(ops,'guard_recovery_rollback',None)
+        if guard:
+            try:guard()
+            except OSError as held:
+                # Preserve the new maintenance-capable program and the original
+                # transaction; never delete a disabled service or revive old tasks.
+                raise NativeInstallFailure(failed_stage,original,'服務復原保護仍有效；保留目前程式、交易與備份，請 MIS 審查，不自動回復舊版。',
+                    [failure_evidence('recovery_hold',held)]) from original
         if browser_attempted and not prior_browser_ledger and (root/'browser-policy-owned.json').exists():
             try:ops.invoke(native/'GuardDesk.exe','browser-policy','--config',protected,'--action','restore')
             except OSError as exc:errors.append('browser_policy_restore_'+type(exc).__name__)

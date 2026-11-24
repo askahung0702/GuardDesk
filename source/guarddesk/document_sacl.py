@@ -109,9 +109,10 @@ class WindowsSacl:
 
 class Manager:
     """One worker owns this manager. Every tick is bounded, resumable on restart."""
-    def __init__(self,directory,backend=None,excluded=lambda p:False,clock=time.monotonic):
+    def __init__(self,directory,backend=None,excluded=lambda p:False,clock=time.monotonic,*,excluded_directory=None):
         self.directory=Path(directory);self.directory.mkdir(exist_ok=True)
         self.path=self.directory/'document-sacl.sqlite3';self.backend=backend or WindowsSacl();self.excluded=excluded;self.clock=clock
+        self.excluded_directory=excluded_directory or excluded
         self.iterator=None;self.current=None;self.next_scan=0;self.rules=[];self.signature=None;self.errors=0;self.last_error=None
         self.next_policy_check=0
         self.db=sqlite3.connect(self.path,timeout=0.05);self.db.row_factory=sqlite3.Row
@@ -216,9 +217,9 @@ class Manager:
                         if not info['directory']:raise OSError('Selected audit root is not a directory')
                     self.iterator=os.scandir(row['path'])
                 entry=next(self.iterator)
-                if entry.is_symlink() or getattr(entry.stat(follow_symlinks=False),'st_file_attributes',0)&0x400 or self.excluded(entry.path):continue
+                if entry.is_symlink() or getattr(entry.stat(follow_symlinks=False),'st_file_attributes',0)&0x400:continue
                 if entry.is_dir(follow_symlinks=False):
-                    if self.current['recursive']:
+                    if self.current['recursive'] and not self.excluded_directory(entry.path):
                         if self.db.execute('SELECT count(*) FROM dirs').fetchone()[0]>=MAX_DIRS:raise OSError('Directory capacity reached')
                         with self.db:self.db.execute('INSERT OR IGNORE INTO dirs VALUES (?,?,1)',(entry.path,self.current['root']))
                 elif entry.is_file(follow_symlinks=False):

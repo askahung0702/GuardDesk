@@ -11,6 +11,7 @@ function restoreUpdatesDraft(d){
  for(const [form,values] of [[$('#update-job'),d.job],[$('#update-progress-filter'),d.filter]])if(form&&values)for(const [key,value] of Object.entries(values)){const field=form.elements.namedItem(key);if(!field)continue;if(field.type==='checkbox')field.checked=value==='on';else if(field.type!=='file')field.value=value;}
  const upload=$('#update-import');if(upload){upload.querySelector('[name=authorize]').checked=Boolean(d.authorize);if(d.file){const transfer=new DataTransfer();transfer.items.add(d.file);upload.querySelector('[name=release]').files=transfer.files;}}
  if($('#advanced-release-import'))$('#advanced-release-import').open=Boolean(d.advanced);
+ restoreEndpointSearches($('#update-job'));syncUpdateTarget($('#update-job'));
  if($('#update-cancel-waiting')&&updatesFilterDirty)$('#update-cancel-waiting').disabled=true;
 }
 function releaseOptions(){return updatesData.releases.filter(r=>r.deployment?.scope!=='server_only').map(r=>`<option value="${r.id}" ${r.id===updatesData.latest_release_id?'selected':''}>v${esc(r.version)}${r.id===updatesData.latest_release_id?' · 最新可用':''}${r.id===updatesData.bundled_release?.release_id?' · Server 隨附':''}</option>`).join('');}
@@ -23,17 +24,17 @@ function bundledVersionCard(){
  const scope=updatesData.server_release,components={server:'管理中心',native:'原生元件',main:'一般 Agent',updater:'獨立更新器'};
  return card('管理中心與端點發布範圍',scope?.scope==='server_only'?'本次只更新管理中心，不建立對應的 Agent 派送版本。':'本版包含端點修正；端點版本與管理中心版本分開判斷。',`<div class="card-body">${scope?`<p data-release-scope="${esc(scope.scope)}"><strong>管理中心 v${esc(scope.version)} · ${scope.scope==='server_only'?'僅管理中心':'需要更新端點'}</strong><br>本次元件：${scope.components.map(c=>components[c]||c).map(esc).join('、')}<br>基本通訊相容最低 Agent：${esc(scope.min_compatible_agent)}${scope.required_updater?'；新版更新器容量檢查：'+esc(scope.required_updater):''}</p>`:''}<p id="bundled-release-state" data-status="${esc(b.status)}"><strong>${b.version?'v'+esc(b.version):'隨附版本'}</strong> · ${esc(message)}</p>${diagnostic?`<div class="notice"><strong>需處理的位置：<code>${esc(diagnostic.path)}</code></strong><p>${esc(reasons[diagnostic.reason]||'來源權限未通過')}。請僅檢查此位置的權限；修正後按重新準備。</p></div>`:''}<p class="help">「最新」指此 Server 已提供的可用版本。系統自動驗證與簽署套件；派送對象及時間仍由 MIS 設定。</p>${['failed','stopped'].includes(b.status)?'<button type="button" class="secondary" id="bundled-release-retry">重新準備隨附版本</button>':''}<details id="advanced-release-import"><summary>進階：手動匯入其他版本</summary><form id="update-import"><label>Windows 發布 ZIP<input type="file" name="release" accept=".zip" required></label><label class="toggle-label">我已核對來源，授權將此可執行版本用於端點更新<input type="checkbox" name="authorize" required></label><p class="help">供特殊版本或回復使用。仍為未簽章內部試用，尚未完成公司 Authenticode／Defender 正式驗收。</p><button class="primary" type="submit">匯入並授權版本</button></form></details></div>`);
 }
-const updateStates={queued:'等待端點／元件就緒',waiting:'等待',downloading:'下載中',verifying:'驗證簽章與內容',applying:'切換程式中',restarting:'重新啟動與健康檢查',healthy:'已確認版本運作',rolled_back:'已回復舊版',failed:'失敗，請檢查',pending:'進行中',completed:'Agent 元件完成',cancelled:'已取消'};
+const updateStates={queued:'等待端點／元件就緒',waiting:'等待',downloading:'下載中',verifying:'驗證簽章與內容',applying:'切換程式中',restarting:'重新啟動與健康檢查',healthy:'已確認版本運作',rolled_back:'已回復舊版',failed:'失敗，請檢查',pending:'進行中',reserved:'已排程／等候上線',completed:'Agent 元件完成',cancelled:'已取消'};
 function updateDelivery(j){const r=(updatesData.updater_refresh||[]).find(r=>r.device_id===j.device_id&&r.job_id===j.id);const labels={active:'背景切換／健康檢查',healthy:'已完成',rolled_back:'已回復原版',failed:'維護失敗，原版保留'};return `<small>${esc(j.delivery?.message||'')}</small><small>通知：原生 ${j.delivery?.connected?.native?'已連線':'未連線'}／一般 ${j.delivery?.connected?.main?'已連線':'未連線'}</small>${r?`<small>獨立更新器 v${esc(r.version)}：${esc(r.state==='active'&&r.expires<Date.now()/1000?'維護回報逾時，請檢查':labels[r.state]||r.state)}</small>`:''}`;}
 function updateProgressCard(){
  const p=updatesData.progress||{total:0,page:1,pages:1,limit:50,cancel_waiting_total:0,mode:'jobs'},selected=(actual,value)=>actual===value?'selected':'';
  const choices={all:'全部工作紀錄',not_updated:'尚未更新／版本未知的端點',pending:'已送出，尚未完成',waiting:'等待中',running:'執行中',completed:'Agent 元件完成',failed:'失敗／已回復',cancelled:'已取消',expired:'已過期'};
- const filters=`<form id="update-progress-filter" class="card-body update-progress-filter"><label>電腦／帳號／部門<input name="q" maxlength="200" placeholder="搜尋電腦名稱、Windows 帳號或部門" value="${esc(updatesFilter.q)}"></label><label>查詢條件<select name="state">${Object.entries(choices).map(([v,label])=>`<option value="${v}" ${selected(updatesFilter.state,v)}>${label}</option>`).join('')}</select></label><label>目標版本<select name="release"><option value="">全部版本</option><option value="latest" ${selected(updatesFilter.release,'latest')}>最新可用版本</option>${updatesData.releases.map(r=>`<option value="${r.id}" ${selected(updatesFilter.release,r.id)}>v${esc(r.version)}</option>`).join('')}</select></label><label>群組（含子群組）<select name="group"><option value="">全部群組</option><option value="unassigned" ${selected(updatesFilter.group,'unassigned')}>未分組</option>${state.groups.map(g=>`<option value="${g.id}" ${selected(updatesFilter.group,g.id)}>${esc(g.path.join(' / '))}</option>`).join('')}</select></label><div class="actions"><button class="primary" type="submit">搜尋</button><button class="secondary" type="button" id="update-filter-clear">清除條件</button></div></form>`;
+ const filters=`<form id="update-progress-filter" class="card-body update-progress-filter"><label>電腦／帳號／部門<input name="q" maxlength="200" placeholder="搜尋電腦名稱、Windows 帳號或部門" value="${esc(updatesFilter.q)}"></label><label>查詢條件<select name="state">${Object.entries(choices).map(([v,label])=>`<option value="${v}" ${selected(updatesFilter.state,v)}>${label}</option>`).join('')}</select></label><label>目標版本<select name="release"><option value="">全部版本</option><option value="latest" ${selected(updatesFilter.release,'latest')}>最新可用版本</option>${(updatesData.history_releases||updatesData.releases).map(r=>`<option value="${r.id}" ${selected(updatesFilter.release,r.id)}>v${esc(r.version)}</option>`).join('')}</select></label><label>群組（含子群組）<select name="group"><option value="">全部群組</option><option value="unassigned" ${selected(updatesFilter.group,'unassigned')}>未分組</option>${state.groups.map(g=>`<option value="${g.id}" ${selected(updatesFilter.group,g.id)}>${esc(g.path.join(' / '))}</option>`).join('')}</select></label><div class="actions"><button class="primary" type="submit">搜尋</button><button class="secondary" type="button" id="update-filter-clear">清除條件</button></div></form>`;
  let table;
  if(p.mode==='devices'){
-  table=(updatesData.pending_devices||[]).length?`<div class="table-wrap"><table id="update-progress-table"><thead><tr><th>端點／帳號</th><th>部門</th><th>一般 Agent</th><th>原生元件</th><th>最近更新工作</th></tr></thead><tbody>${updatesData.pending_devices.map(d=>`<tr data-update-device="${d.id}"><td><strong>${esc(d.name)}</strong><small>${esc((d.accounts||[]).join('、')||'尚無帳號回報')}</small></td><td>${esc(d.department||'—')}</td><td>${esc(d.main_version||'版本未知')}<small>最後回報 ${esc(date(d.main_received))}</small></td><td>${esc(d.native_version||'版本未知')}<small>${d.native_received?'最後回報 '+esc(date(d.native_received)):'尚無原生元件回報'}</small></td><td>${d.latest_job?`${esc(d.latest_job.status==='pending'&&d.latest_job.expires<Date.now()/1000?'已過期':updateStates[d.latest_job.status]||d.latest_job.status)}<small>目標 v${esc(d.latest_job.version)}</small>`:'尚未派送'}</td></tr>`).join('')}</tbody></table></div>`:empty('沒有尚未更新的端點',p.target_version?'所有有效端點最後回報的一般與原生版本皆已達目標。':'請先準備可用版本。');
+  table=(updatesData.pending_devices||[]).length?`<div class="table-wrap"><table id="update-progress-table"><thead><tr><th>端點／帳號</th><th>部門</th><th>一般 Agent</th><th>原生元件</th><th>最近更新工作</th></tr></thead><tbody>${updatesData.pending_devices.map(d=>`<tr data-update-device="${d.id}"><td><strong>${esc(d.name)}</strong><small>${esc((d.accounts||[]).join('、')||'尚無帳號回報')}</small></td><td>${esc(d.department||'—')}</td><td>${esc(d.main_version||'版本未知')}<small>最後回報 ${esc(date(d.main_received))}</small></td><td>${esc(d.native_version||'版本未知')}<small>${d.native_received?'最後回報 '+esc(date(d.native_received)):'尚無原生元件回報'}</small></td><td>${d.latest_job?`${esc(d.latest_job.expired?'已過期':updateStates[d.latest_job.status]||d.latest_job.status)}<small>目標 v${esc(d.latest_job.version)}</small>`:'尚未派送'}</td></tr>`).join('')}</tbody></table></div>`:empty('沒有尚未更新的端點',p.target_version?'所有有效端點最後回報的一般與原生版本皆已達目標。':'請先準備可用版本。');
  }else{
-  table=updatesData.jobs.length?`<div class="table-wrap"><table id="update-progress-table"><thead><tr><th>端點／版本</th><th>時間（台北）</th><th>原生元件</th><th>一般 Agent</th><th>工作／等待原因</th><th></th></tr></thead><tbody>${updatesData.jobs.map(j=>{const expired=j.expires<Date.now()/1000&&j.status==='pending';return `<tr data-update-job="${j.id}"><td><strong>${esc(j.name)}</strong><small>v${esc(j.version)} ${j.allow_downgrade?'· 允許回復':''}</small></td><td>${esc(date(j.not_before))}</td>${['native','main'].map(role=>{const c=j.components[role];return `<td>${esc(updateStates[c?.state]||c?.state||'等待')}<small>${esc(c?.version||'')}${c?.error?' · '+esc(c.error):''}</small></td>`;}).join('')}<td>${esc(expired?'已過期':updateStates[j.status]||j.status)}${updateDelivery(j)}</td><td>${j.status==='pending'&&!expired?`<button class="secondary" data-update-notify="${j.id}">立即通知</button> <button class="secondary" data-update-cancel="${j.id}">取消工作</button>`:''}</td></tr>`;}).join('')}</tbody></table></div>`:empty('沒有符合條件的更新工作','可調整條件或清除篩選。');
+  table=updatesData.jobs.length?`<div class="table-wrap"><table id="update-progress-table"><thead><tr><th>端點／版本</th><th>時間（台北）</th><th>原生元件</th><th>一般 Agent</th><th>工作／等待原因</th><th></th></tr></thead><tbody>${updatesData.jobs.map(j=>{const expired=j.expires<Date.now()/1000&&['pending','reserved'].includes(j.status)&&j.delivery?.code!=='awaiting_result';return `<tr data-update-job="${j.id}"><td><strong>${esc(j.name)}</strong><small>v${esc(j.version)} ${j.allow_downgrade?'· 允許回復':''}</small></td><td>${esc(date(j.not_before))}</td>${['native','main'].map(role=>{const c=j.components[role];return `<td>${esc(updateStates[c?.state]||c?.state||'等待')}<small>${esc(c?.version||'')}${c?.error?' · '+esc(c.error):''}</small></td>`;}).join('')}<td>${esc(expired?'已過期':updateStates[j.status]||j.status)}${updateDelivery(j)}</td><td>${['pending','reserved'].includes(j.status)&&!expired?`<button class="secondary" data-update-notify="${j.id}">立即通知</button> <button class="secondary" data-update-cancel="${j.id}">取消工作</button>`:''}</td></tr>`;}).join('')}</tbody></table></div>`:empty('沒有符合條件的更新工作','可調整條件或清除篩選。');
  }
  const first=p.total?(p.page-1)*50+1:0,last=Math.min(p.page*50,p.total);
  const paging=`<div class="card-body update-progress-pager"><span id="update-page-summary">第 ${first}–${last} 筆，共 ${p.total} 筆 · 第 ${p.page}／${p.pages} 頁 · 每頁 50 筆</span><div class="actions">${[[1,'第一頁'],[p.page-1,'上一頁'],[p.page+1,'下一頁'],[p.pages,'最後一頁']].map(([n,label],i)=>`<button type="button" class="secondary" data-update-page="${n}" ${(i<2?p.page<=1:p.page>=p.pages)?'disabled':''}>${label}</button>`).join('')}</div></div>`;
@@ -63,22 +64,84 @@ function bindUpdateProgress(){
   }catch(e){toast(e.message);}finally{if(b.isConnected&&!updatesFilterDirty)b.disabled=false;}
  });
 }
+function updateEndpointDescription(d){
+ const presence=updatesData.presence||[],n=presence.find(p=>p.device_id===d?.id&&p.role==='native'),m=presence.find(p=>p.device_id===d?.id&&p.role==='main');
+ return `一般 ${m?.version||d?.inventory?.agent_version||'未知'}／原生 ${n?.version||d?.native_usb?.worker_version||'未知'} · 更新器 ${n?.broker_version||'待回報'}${n&&m?'':' · 需先升級更新元件'}`;
+}
+function syncUpdateTarget(form){
+ if(!form)return;const box=form.querySelector('[data-update-device]');if(!box)return;
+ const enabled=form.elements.target.value==='device';box.hidden=!enabled;
+ for(const input of box.querySelectorAll('input'))input.disabled=!enabled;
+ refreshEndpointSearches(box);
+}
+function setUpdateTarget(form,target){
+ if(!form)return;
+ if(target.startsWith('device:')){form.elements.target.value='device';form.querySelector('[data-endpoint-search]')?.endpointSearch?.setValue(target.slice(7));}
+ else form.elements.target.value=target;
+ syncUpdateTarget(form);
+}
+function updateTargetBody(target,deviceID,devices,groups){
+ const active=devices.filter(d=>!d.revoked);
+ if(target==='all'){if(!active.length)throw Error('目前沒有可派送的端點。');return {device_ids:active.map(d=>d.id)};}
+ if(target==='device'&&active.some(d=>d.id===deviceID))return {device_ids:[deviceID]};
+ if(target.startsWith('group:')&&groups.some(g=>g.id===target.slice(6)))return {group_id:target.slice(6)};
+ throw Error('請選擇有效的群組，或搜尋並選定一台端點。');
+}
 function updatesPage(){
- const devices=state.devices.filter(d=>!d.revoked),presence=updatesData.presence;
- const targets=devices.map(d=>{const n=presence.find(p=>p.device_id===d.id&&p.role==='native'),m=presence.find(p=>p.device_id===d.id&&p.role==='main');return `<option value="device:${d.id}">${esc(d.name)} · 一般 ${esc(m?.version||d.inventory?.agent_version||'未知')}／原生 ${esc(n?.version||d.native_usb?.worker_version||'未知')} · 更新器 ${esc(n?.broker_version||'待回報')}${n&&m?'':' · 需先升級更新元件'}</option>`;}).join('');
+ const devices=state.devices.filter(d=>!d.revoked);
  return heading('AGENT UPDATES','Agent 集中更新','先試一台，再選群組分批派送。保留端點身分、策略與離線日誌。')+
  `<div class="notice">0.4.17 支援背景更新 Agent、原生元件與獨立更新器，端點不需逐台核准，也不會跳出桌面通知。MIS 在此授權及派送，端點驗簽、保留備份並檢查健康，失敗時回復。派送前須確認實際更新器版本、容量與保留副本；舊更新器首次升級可能需要一次性修復，不能用 Server 已更新代替端點檢查。離線時上線後處理；使用者未登入時一般 Agent 等待登入，遠端協助中暫緩更新。</div>`+
- `<div class="grid">${bundledVersionCard()}${card('派送或回復版本','排程時間以台北為準；原生與一般元件各最多兩台並行更新。',`<form id="update-job" class="card-body"><label>目標版本<select name="release_id" required><option value="">請選擇</option>${releaseOptions()}</select></label><label>端點／群組<select name="target" required><option value="">請先選一台試用</option>${targets}${state.groups.map(g=>`<option value="group:${g.id}">群組：${esc(g.path.join(' / '))}（含子群組）</option>`).join('')}<option value="all">全部有效端點</option></select></label><details><summary>舊更新器首次升級：單台試用確認</summary><label class="toggle-label">已完成更新前檢查及必要修復，確認本次單台可升級<input name="legacy_preflight_confirmed" type="checkbox"></label><p class="help">這是管理者確認，不代表中心已讀取端點容量；不適用群組或全體派送。</p></details><label>開始時間（台北；空白表示現在）<input type="datetime-local" name="not_before"></label><label class="toggle-label">明確允許回復到指定舊版<input type="checkbox" name="allow_downgrade"></label><button type="submit" class="primary">建立更新工作</button><p class="help">只短暫重啟 Agent 相關元件，不自動重新啟動 Windows；遠端協助進行中時等待結束。</p></form>`)}</div>`+
+ `<div class="grid">${bundledVersionCard()}${card('派送或回復版本','排程時間以台北為準；原生與一般元件各最多兩台並行更新。',`<form id="update-job" class="card-body"><label>目標版本<select name="release_id" required><option value="">請選擇</option>${releaseOptions()}</select></label><label>端點／群組<select name="target" required><option value="all">全部端點（${devices.length} 台）</option>${state.groups.map(g=>`<option value="group:${esc(g.id)}">群組：${esc(g.path.join(' / '))}（含子群組）</option>`).join('')}<option value="device">指定端點（輸入搜尋）</option></select></label><div data-update-device hidden><label for="update-device">指定端點</label>${endpointSearchField('update-device','device_id','',{activeOnly:true})}</div><details><summary>舊更新器首次升級：單台試用確認</summary><label class="toggle-label">已完成更新前檢查及必要修復，確認本次單台可升級<input name="legacy_preflight_confirmed" type="checkbox"></label><p class="help">這是管理者確認，不代表中心已讀取端點容量；不適用群組或全體派送。</p></details><label>開始時間（台北；空白表示現在）<input type="datetime-local" name="not_before"></label><label class="toggle-label">明確允許回復到指定舊版<input type="checkbox" name="allow_downgrade"></label><button type="submit" class="primary">預覽派送</button><p class="help">只短暫重啟 Agent 相關元件，不自動重新啟動 Windows；遠端協助進行中時等待結束。</p></form>`)}</div>`+
  updateProgressCard();
+}
+function showUpdateDispatch(preview){
+ const labels={ready:'可更新',waiting:'等候上線／回報',needs_check:'需 MIS 檢查',conflict:'工作衝突',current:'已是目標版本'};
+ const counts=Object.fromEntries(Object.keys(labels).map(key=>[key,0]));
+ const rows=preview.targets.map(item=>{
+  counts[item.state]++;
+  const broker=item.broker_version?' · 更新器 '+item.broker_version:'';
+  const received=item.broker_received?' · 最後回報 '+date(item.broker_received):'';
+  return `<tr><td>${esc(item.name||item.device_id)}</td><td>${esc(labels[item.state])}</td><td>${esc(item.reason+broker+received)}</td></tr>`;
+ }).join('');
+ const summary=Object.entries(labels).map(([key,label])=>`${label} ${counts[key]} 台`).join(' · ');
+ dialog('確認派送 v'+preview.version,`<p>${summary}</p><p>開始 ${esc(date(preview.not_before))} · 預約到期 ${esc(date(preview.expires))}${preview.allow_downgrade?' · 允許回復舊版':''}</p>
+ <details><summary>查看 ${preview.targets.length} 台端點明細</summary><div class="table-wrap"><table><thead><tr><th>端點</th><th>狀態</th><th>原因</th></tr></thead><tbody>${rows}</tbody></table></div></details>
+ <div class="actions"><button class="primary" id="update-dispatch-confirm" ${counts.ready+counts.waiting?'':'disabled'}>派送並預約</button><button class="secondary" id="update-dispatch-ready" ${counts.ready?'':'disabled'}>只派就緒端點</button></div>`,true);
+ let chosen=null;
+ const buttons=[$('#update-dispatch-confirm'),$('#update-dispatch-ready')];
+ for(const [i,button] of buttons.entries()){
+  button.onclick=async()=>{
+   if(chosen!==null&&chosen!==i)return;
+   chosen=i;
+   buttons.forEach(b=>b.disabled=true);
+   try{
+    const result=await api('/api/updates/jobs',{confirm:'deploy',preview_id:preview.preview_id,ready_only:i===1});
+    updatesDirty=false;$('#dialog').close();
+    toast(`已排程 ${result.scheduled} 台，已預約 ${result.reserved} 台，略過 ${result.skipped} 台。`);
+    await refresh();
+   }catch(e){toast(e.message);button.disabled=false;}
+  };
+ }
 }
 function bindUpdates(){
  bindUpdateProgress();
  document.querySelector('#bundled-release-retry')?.addEventListener('click',async event=>{event.currentTarget.disabled=true;try{await api('/api/updates/bundled/prepare',{});await refresh();}catch(e){toast(e.message);event.currentTarget.disabled=false;}});
  document.querySelectorAll('[data-update-notify]').forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{const r=await api('/api/updates/notify',{job_id:b.dataset.updateNotify});toast(r.message);await refresh();}catch(e){toast(e.message);b.disabled=false;}}));
  const upload=document.querySelector('#update-import'),job=document.querySelector('#update-job');
- [upload,job].filter(Boolean).forEach(f=>f.addEventListener('change',()=>updatesDirty=true));
+ [upload,job].filter(Boolean).forEach(f=>{f.addEventListener('change',()=>updatesDirty=true);f.addEventListener('input',()=>updatesDirty=true);});
+ job?.elements.target.addEventListener('change',()=>syncUpdateTarget(job));syncUpdateTarget(job);
  upload?.addEventListener('submit',async event=>{event.preventDefault();const button=upload.querySelector('button');button.disabled=true;const file=upload.querySelector('[name=release]').files[0];try{if(!file||file.size>64*1024*1024)throw Error('請選擇不超過 64 MiB 的完整發布 ZIP');const response=await fetch('/api/updates/import',{method:'POST',headers:{'Content-Type':'application/zip','X-CSRF-Token':user.csrf,'X-GuardDesk-Authorize':'update-release'},body:file});const result=await response.json();if(!response.ok)throw Error(result.error||'匯入失敗');updatesDirty=false;toast('已匯入版本 '+result.version+'，請先派送一台');await refresh();}catch(e){toast(e.message);button.disabled=false;}});
- job?.addEventListener('submit',async event=>{event.preventDefault();const f=new FormData(job),target=f.get('target'),body={release_id:f.get('release_id'),confirm:'deploy',legacy_preflight_confirmed:f.get('legacy_preflight_confirmed')==='on',allow_downgrade:f.get('allow_downgrade')==='on'};if(target==='all')body.device_ids=state.devices.filter(d=>!d.revoked).map(d=>d.id);else if(target.startsWith('group:'))body.group_id=target.slice(6);else body.device_ids=[target.slice(7)];if(f.get('not_before'))body.not_before=new Date(f.get('not_before')+':00+08:00').getTime()/1000;const b=job.querySelector('button');b.disabled=true;try{const result=await api('/api/updates/jobs',body);updatesDirty=false;toast('已建立 '+result.job_ids.length+' 台更新工作');await refresh();}catch(e){toast(e.message);b.disabled=false;}});
+ job?.addEventListener('submit',async event=>{
+  event.preventDefault();if(!validateEndpointSearches(job))return;
+  const button=job.querySelector('button[type=submit]');button.disabled=true;
+  try{
+   const fields=new FormData(job),target=fields.get('target')||'';
+   const selection=target==='all'?{all_endpoints:true}:updateTargetBody(target,fields.get('device_id')||'',state.devices,state.groups);
+   const body={...selection,release_id:fields.get('release_id'),legacy_preflight_confirmed:target==='device'&&fields.get('legacy_preflight_confirmed')==='on',allow_downgrade:fields.get('allow_downgrade')==='on'};
+   if(fields.get('not_before'))body.not_before=new Date(fields.get('not_before')+':00+08:00').getTime()/1000;
+   showUpdateDispatch(await api('/api/updates/jobs/preview',body));
+  }catch(e){toast(e.message);}finally{button.disabled=false;}
+ });
  document.querySelectorAll('[data-update-cancel]').forEach(b=>b.addEventListener('click',()=>dialog('確認取消更新','<p>取消尚未切換的更新。正在替換程式或回復的端點會先完成安全處理，不強制中斷。</p><button class="danger" id="update-cancel-confirm">確認取消</button>')||null));
  document.querySelectorAll('[data-update-cancel]').forEach(b=>b.addEventListener('click',()=>{document.querySelector('#update-cancel-confirm').onclick=async()=>{try{await api('/api/updates/cancel',{job_id:b.dataset.updateCancel});document.querySelector('#dialog').close();await refresh();}catch(e){toast(e.message);}};}));
 }

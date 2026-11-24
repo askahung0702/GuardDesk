@@ -17,12 +17,16 @@ import ssl
 import copy
 from pathlib import Path
 from urllib.parse import urlsplit
+from .audit_collection import uploads_enabled
+
 from .policy import MAX_FILE, evaluate, normalize_policy,decode_agent_policy
 from .serialization import canonical
 from . import __version__
 from .identity import current_account,session_metadata
 from .file_exclusions import excluded_internal_health_activity,excluded_installer_activity
+from .document_writes import excluded_unconfirmed_write
 from .transport_errors import CenterTransportError, network_error
+from . import event_upload, document_saves
 
 LOG = logging.getLogger("guarddesk.agent")
 
@@ -90,6 +94,7 @@ class Agent:
         self._process_sampler=ProcessSampler()
         self._opener=None
         self._qos_verified=False
+        self._upload_schedule = None
         with self.db() as db:
             db.executescript('''
             PRAGMA journal_mode=WAL;
@@ -99,12 +104,30 @@ class Agent:
             CREATE INDEX IF NOT EXISTS outbox_created ON outbox(created,event_id);
             CREATE TABLE IF NOT EXISTS outbox_priority(event_id TEXT PRIMARY KEY,created REAL NOT NULL);
             CREATE INDEX IF NOT EXISTS outbox_priority_created ON outbox_priority(created,event_id);
-            ''')
+            ''' + event_upload.SCHEMA + document_saves.SCHEMA)
             # One-time compatibility backfill. Future host/collector writes add
             # priority entries in the same transaction as the durable event.
             if not db.execute("SELECT 1 FROM state WHERE key='outbox_priority_initialized'").fetchone():
                 db.execute("INSERT OR IGNORE INTO outbox_priority SELECT event_id,created FROM outbox WHERE json_extract(payload,'$.kind') LIKE 'web.%' OR json_extract(payload,'$.kind') LIKE 'application.%' OR json_extract(payload,'$.severity')='critical'")
                 db.execute("INSERT INTO state VALUES ('outbox_priority_initialized','1')")
+            idle=db.execute("SELECT value FROM state WHERE key='heartbeat_only'").fetchone()
+            self.idle_revision=int(idle[0]) if idle else 0
+        self._next_mode_check=0
+
+    def set_idle_revision(self, revision, db):
+        if type(revision) is not int or revision < 0:
+            raise ValueError('端點心跳模式版本不正確')
+        if self.idle_revision == revision:return
+        if revision:
+            db.execute("INSERT OR REPLACE INTO state VALUES ('heartbeat_only',?)",(str(revision),))
+            db.execute("DELETE FROM state WHERE key='custom_packet_v1'")
+            self.custom_packet=None
+        else:
+            db.execute("DELETE FROM state WHERE key='heartbeat_only'")
+            db.execute("INSERT OR REPLACE INTO state VALUES ('resume_since',?)",(str(time.time()),))
+            db.execute("INSERT OR REPLACE INTO state VALUES ('snapshot_rebaseline','1')")
+            db.execute("DELETE FROM state WHERE key IN ('security_cursor','browser_history_session') OR key LIKE 'applocker_cursor_%'")
+        self.idle_revision=revision
 
     @contextmanager
     def db(self):
@@ -121,6 +144,16 @@ class Agent:
             connection.close()
 
     def call(self, path, body,timeout=10):
+        if path != '/api/agent/heartbeat':
+            # Other processes (including the independent updater) share this agent DB.
+            now=time.monotonic()
+            if now>=self._next_mode_check:
+                with self.db() as db:
+                    idle=db.execute("SELECT value FROM state WHERE key='heartbeat_only'").fetchone()
+                self.idle_revision=int(idle[0]) if idle else 0
+                self._next_mode_check=now+2
+            if self.idle_revision:
+                raise ConnectionError('端點目前只回報心跳')
         from .remote_trial import enabled
         if enabled() and path not in {'/api/agent/heartbeat', '/api/agent/remote/poll',
                 '/api/agent/remote/update','/api/agent/remote/native',
@@ -145,21 +178,39 @@ class Agent:
     def queue(self, kind, details, severity="info", db=None, occurred=None, event_id=None):
         from .remote_trial import reject
         reject('Audit event queue')
+        if kind=='web.upload_gap' and isinstance(details,dict) and details.get('reason')=='request_body_unavailable':return None
+        if kind in ('web.navigation','web.page_title') and isinstance(details,dict) and details.get('source')=='browser_extension':return None
         # Product collection scope: retain historical records, but never queue
         # new content/attribute-change events from any collector.
         if kind == 'file.modified':return None
+        if excluded_unconfirmed_write(kind,severity,details):return None
         if excluded_internal_health_activity(kind,severity,details):return None
         if excluded_installer_activity(kind,severity,details):return None
+        identity = None
+        if isinstance(details, dict) and '_save_object' in details:
+            details = dict(details)
+            identity = details.pop('_save_object')
         eid = event_id or secrets.token_hex(16)
         payload = {"event_id": eid, "kind": kind, "severity": severity, "details": details, "occurred": time.time() if occurred is None else occurred}
+
+        def insert(connection):
+            if connection.execute("SELECT 1 FROM state WHERE key='heartbeat_only'").fetchone():return None
+            if occurred is not None:
+                since=connection.execute("SELECT value FROM state WHERE key='resume_since'").fetchone()
+                if since and occurred<float(since[0]):return None
+            stamp = time.time()
+            added = connection.execute("INSERT OR IGNORE INTO outbox VALUES (?,?,?)", (eid, canonical(payload), stamp))
+            if added.rowcount and document_saves.candidate(kind, severity, details, identity):
+                ref = identity or (details.get('file_id'), None)
+                document_saves.track(connection, eid, ref, stamp, kind, details['path'])
+            if kind.startswith(('web.','application.')) or severity=='critical':
+                connection.execute('INSERT OR IGNORE INTO outbox_priority VALUES (?,?)',(eid, stamp))
+            return eid
+
         if db is not None:
-            db.execute("INSERT OR IGNORE INTO outbox VALUES (?,?,?)", (eid, canonical(payload), time.time()))
-            if kind.startswith(('web.','application.')) or severity=='critical':db.execute('INSERT OR IGNORE INTO outbox_priority VALUES (?,?)',(eid,time.time()))
-        else:
-            with self.db() as connection:
-                connection.execute("INSERT OR IGNORE INTO outbox VALUES (?,?,?)", (eid, canonical(payload), time.time()))
-                if kind.startswith(('web.','application.')) or severity=='critical':connection.execute('INSERT OR IGNORE INTO outbox_priority VALUES (?,?)',(eid,time.time()))
-        return eid
+            return insert(db)
+        with self.db() as connection:
+            return insert(connection)
 
     def cached_policy(self):
         # Native host and main Agent use separate processes. Check the WAL timestamp,
@@ -171,8 +222,12 @@ class Agent:
                 except FileNotFoundError:stamp.append(None)
             now=time.monotonic()
             if self._policy_cache is None or stamp!=self._policy_stamp or now-self._policy_checked>=2:
-                with self.db() as db:saved=db.execute("SELECT value FROM state WHERE key='policy'").fetchone()
-                packet=json.loads(saved[0]) if saved else {'version':0,'body':{}}
+                with self.db() as db:values=dict(db.execute("SELECT key,value FROM state WHERE key IN ('policy','heartbeat_only')"))
+                if 'heartbeat_only' in values:
+                    from .policy import heartbeat_policy
+                    packet=heartbeat_policy(int(values['heartbeat_only']))
+                else:
+                    packet=json.loads(values['policy']) if 'policy' in values else {'version':0,'body':{}}
                 packet=decode_agent_policy(packet)
                 self._policy_cache=packet;self._policy_stamp=stamp;self._policy_checked=now
             return copy.deepcopy(self._policy_cache)
@@ -195,6 +250,9 @@ class Agent:
         with self.db() as db:
             saved = db.execute("SELECT value FROM state WHERE key='policy'").fetchone()
         old=json.loads(saved[0]) if saved else {}
+        if old.get('heartbeat_only') or self.idle_revision:
+            result=self.call('/api/agent/heartbeat',{'idle_heartbeat':True,'inventory':{}})
+            return self.receive_policy(old,result,{})
         ack = old.get('version',0)
         now=time.monotonic()
         if refresh_inventory and (not self.assets or now>=self._next_inventory):
@@ -208,21 +266,25 @@ class Agent:
             self.assets=assets
         assets=copy.deepcopy(self.assets)
         from .document_audit import browser_status
-        self.feature_status['document_upload']=browser_status(self,self.cached_policy()['body']['browser_audit'])
+        self.feature_status['document_upload']=browser_status(self,uploads_enabled(self.policy_for_user(current_account())['body']))
         if self.native_handoff is not None:
             self.feature_status['native_file_handoff']=self.native_handoff.snapshot()
         self.feature_status.setdefault('performance',{}).update(self._process_sampler.sample())
         assets['collectors']=self.feature_status
         assets['outbox']=self.queue_status()
         result = self.call("/api/agent/heartbeat", {"policy_version": ack, "policy_fingerprint":old.get('fingerprint',''), "inventory": assets})
+        return self.receive_policy(old,result,assets)
+
+    def receive_policy(self,old,result,assets):
         decoded=decode_agent_policy(result['policy'])
         with self.db() as db:
             if canonical(old)!=canonical(result['policy']):db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)", (canonical(result["policy"]),))
+            self.set_idle_revision(decoded.get('heartbeat_only',0),db)
         with self._policy_lock:self._policy_cache=None
-        self.assets = assets
+        self.assets = {} if self.idle_revision else assets
         if getattr(self,'_installed_desktop_browser_dispatch',False):
             from .browser_dispatch import sync
-            self.feature_status['browser_deployment']=sync(self,result.get('browser_dispatch'),enabled=decoded['body']['browser_audit'])
+            self.feature_status['browser_deployment']=sync(self,result.get('browser_dispatch'),enabled=uploads_enabled(decoded['body']) or any(uploads_enabled(p['body']) for p in decoded.get('user_policies', {}).values()))
         return decoded
 
     def collect_native(self,policy):
@@ -300,17 +362,39 @@ class Agent:
         if self.proxy:self.proxy.close();self.proxy=None
 
     def flush(self,max_batches=20,require_empty=True,pause=0,stop=None):
+        with self.db() as db:
+            if not db.execute('SELECT 1 FROM outbox LIMIT 1').fetchone():
+                return {'sent':0,'pending':False}
+        with event_upload.sender(self.state, wait=require_empty) as acquired:
+            if not acquired:
+                return {'sent':0,'pending':True}
+            return self._flush_batches(max_batches,require_empty,pause,stop)
+
+    def _flush_batches(self,max_batches,require_empty,pause,stop):
         sent=0
         for _ in range(max_batches):
             if stop is not None and stop.is_set():break
             with self.db() as db:
+                if db.execute("SELECT 1 FROM state WHERE key='heartbeat_only'").fetchone():
+                    return {'sent':sent,'pending':bool(db.execute('SELECT 1 FROM outbox LIMIT 1').fetchone())}
+                document_saves.settle(db, force=require_empty)
+            with self.db() as db:
+                if db.execute("SELECT 1 FROM state WHERE key='heartbeat_only'").fetchone():
+                    return {'sent':sent,'pending':bool(db.execute('SELECT 1 FROM outbox LIMIT 1').fetchone())}
                 rows=[];size=0
                 priority=[];priority_bytes=0
-                for row in db.execute('SELECT o.event_id,o.payload FROM outbox_priority p JOIN outbox o ON o.event_id=p.event_id ORDER BY p.created,p.event_id LIMIT 25'):
+                urgent = list(db.execute(f'SELECT event_id,payload FROM outbox WHERE {event_upload.URGENT} ORDER BY created,event_id LIMIT 12'))
+                preferred = db.execute('SELECT o.event_id,o.payload FROM outbox_priority p JOIN outbox o ON o.event_id=p.event_id ORDER BY p.created,p.event_id LIMIT 25')
+                preferred_ids = set()
+                for row in urgent + list(preferred):
+                    if row[0] in preferred_ids:continue
                     length=len(row[1].encode('utf-8'))
                     if priority and priority_bytes+length>65536:break
                     priority.append(row);priority_bytes+=length
-                ordinary=list(db.execute('SELECT event_id,payload FROM outbox ORDER BY created,event_id LIMIT 100'))
+                    preferred_ids.add(row[0])
+                    if len(priority)>=25:break
+                ordinary=list(db.execute('SELECT event_id,payload FROM outbox WHERE event_id NOT IN '
+                                         '(SELECT event_id FROM document_save_pending) ORDER BY created,event_id LIMIT 100'))
                 seen=set()
                 for row in priority+ordinary:
                     if row[0] in seen:continue
@@ -318,17 +402,24 @@ class Agent:
                     if rows and size+length>262144:break
                     rows.append(row);seen.add(row[0]);size+=length
                     if len(rows)>=100:break
-            if not rows:
-                return {'sent':sent,'pending':False}
-            result = self.call("/api/agent/events", {"events": [json.loads(row[1]) for row in rows]})
-            expected = {row[0] for row in rows}
-            accepted = result.get("accepted", [])
-            if set(accepted) != expected:
-                raise ConnectionError("管理中心未完整確認事件")
+                if not rows:
+                    pending = bool(db.execute('SELECT 1 FROM outbox LIMIT 1').fetchone())
+                    if pending and require_empty:
+                        continue
+                    return {'sent':sent,'pending':pending}
+                outgoing, keys, local_ids = event_upload.prepare(db, rows, self.config.get('device_id'))
+            expected = {event['event_id'] for event in outgoing}
+            if outgoing:
+                result = self.call("/api/agent/events", {"events": outgoing})
+                accepted = result.get('accepted') if isinstance(result, dict) else None
+                if (not isinstance(accepted, list) or len(accepted) != len(expected)
+                        or not all(isinstance(eid, str) for eid in accepted) or set(accepted) != expected):
+                    raise ConnectionError("管理中心未完整確認事件")
             with self.db() as db:
-                db.executemany("DELETE FROM outbox WHERE event_id=?", [(eid,) for eid in accepted])
-                db.executemany('DELETE FROM outbox_priority WHERE event_id=?',[(eid,) for eid in accepted])
-            sent+=len(accepted)
+                event_upload.confirm(db, keys, expected)
+                db.executemany("DELETE FROM outbox WHERE event_id=?", local_ids)
+                db.executemany('DELETE FROM outbox_priority WHERE event_id=?', local_ids)
+            sent+=len(expected)
             if pause and stop is not None:
                 if stop.wait(pause):break
             elif pause:time.sleep(pause)
@@ -360,6 +451,10 @@ class Agent:
         source, target = Path(source).resolve(), Path(target).absolute()
         if not source.is_relative_to(self.root) or not source.is_file():
             raise ValueError("來源必須在監看資料夾內")
+        if self.idle_revision:
+            with source.open('rb') as original, target.open('xb') as output:
+                shutil.copyfileobj(original,output)
+            return {'allowed':True,'matched':False,'reasons':[],'mode':'monitor'}
         if source.stat().st_size > MAX_FILE:
             self.queue("export.blocked", {"path": str(source.relative_to(self.root)), "reasons": ["pilot_10mb_limit"]}, "warning")
             self.flush()
@@ -413,13 +508,41 @@ class Agent:
             from .remote_windows import RemoteAgent
             self.remote=RemoteAgent(self,self.remote_stop,stop);self.remote.start()
         with background_work() as scheduling,self.wal_session():
-            self.feature_status['performance']={**scheduling,'scan_entries':200,'scan_budget_ms':50,'software_refresh_seconds':900,'inventory_refresh_seconds':60,'flush_batches':8,'flush_batch_events':100}
+            self.feature_status['performance']={**scheduling,'scan_entries':200,'scan_budget_ms':50,'software_refresh_seconds':900,'inventory_refresh_seconds':60,'flush_batches':1,'flush_batch_events':100,'upload_interval_seconds':[event_upload.NORMAL_MIN,event_upload.NORMAL_MAX]}
             try:self._run_background(stop,interval)
             finally:
                 if custom:custom.close()
                 if not managed_remote:
                     self.remote_stop.set()
                     if hasattr(self,'remote'):self.remote.local_stop.set();self.remote.close_indicator()
+
+    def upload_if_due(self, stop=None):
+        if getattr(self,'idle_revision',0):return
+        if self._upload_schedule is None:
+            self._upload_schedule = event_upload.UploadSchedule()
+        self._upload_schedule.poll(self, stop)
+
+    def _link_step(self,stop,heartbeat_gate,next_heartbeat):
+        """One bounded center round; returns the next heartbeat deadline.
+
+        The reason is a fixed scalar for the next successful heartbeat and the
+        local log. It is never an exception text, URL, token or path.
+        """
+        from .transport_errors import link_state,link_retry_floor
+        if time.monotonic()>=next_heartbeat and heartbeat_gate.ready():
+            previous=self.feature_status.get('center_link') or {}
+            try:
+                self.heartbeat()
+                next_heartbeat=time.monotonic()+30;heartbeat_gate.success()
+                last=previous.get('state') if previous.get('state') not in (None,'connected') else previous.get('last_failure')
+                self.feature_status['center_link']={'state':'connected',**({'last_failure':last} if last else {})}
+            except (ConnectionError,OSError,ValueError) as exc:
+                state=link_state(exc);heartbeat_gate.failure(link_retry_floor(state))
+                if previous.get('state')!=state['state']:
+                    LOG.warning('心跳未送達（%s）；依最後策略運作，紀錄保留本機待補送',state['state'])
+                self.feature_status['center_link']=state
+        self.upload_if_due(stop)
+        return next_heartbeat
 
     def _run_background(self,stop,interval):
         LOG.info("Agent 啟動，讀取已安裝的收集器與離線策略；按 Ctrl+C 可停止")
@@ -433,36 +556,51 @@ class Agent:
         if not saved(self):self.queue("agent.started", {"watch": str(self.root)})
         next_heartbeat = 0
         next_runtime_health=0
-        next_network=0;retry=5
+        # Separate lanes: a stuck upload must not stretch the heartbeat beyond
+        # its normal 30 second cadence, and neither lane restarts the Agent.
+        from .transport_errors import Backoff
+        heartbeat_gate=Backoff(5,30)
+        session_account = current_account().casefold()
         try:
             while not stop.is_set():
+                if self.idle_revision:
+                    quiet=self.cached_policy()
+                    self.native_handoff.step(quiet)
+                    if self.monitor:self.monitor.close();self.monitor=None
+                    if self._snapshot:self._snapshot.close();self._snapshot=None
+                    if self.proxy:self.proxy.close();self.proxy=None
+                    self.security=None
+                    if not self.config.get('machine_session') and os.name=='nt' and time.monotonic()>=self.next_controls:
+                        from .windows_controls import WindowsControls
+                        controls=WindowsControls(self)
+                        if controls.installed:
+                            from .policy import heartbeat_policy
+                            neutral=decode_agent_policy(heartbeat_policy(self.idle_revision))['body']
+                            try:self.feature_status['windows']=controls.apply(neutral)
+                            except (OSError,ValueError):self.feature_status['windows']={'status':'restore_pending'}
+                        self.next_controls=time.monotonic()+60
+                    self.control_signature=None
+                    next_heartbeat=self._link_step(stop,heartbeat_gate,next_heartbeat)
+                    stop.wait(interval)
+                    continue
                 from .decommission import main_step,saved
                 try:
-                    if time.monotonic()>=next_network and main_step(self):return
+                    if heartbeat_gate.ready() and main_step(self):return
                 except (OSError,ConnectionError,ValueError):pass
                 if saved(self):
                     self.feature_status['native_file_handoff']=self.native_handoff.step(self.cached_policy())
                     stop.wait(interval);continue
                 try:
                     policy=self.cached_policy()
-                    self.feature_status['native_file_handoff']=self.native_handoff.step(policy)
+                    session_policy = policy.get('user_policies', {}).get(session_account, policy)
+                    self.feature_status['native_file_handoff']=self.native_handoff.step(session_policy)
                     self.collect_native(policy)
                 except (OSError,ValueError):LOG.exception('收集器執行失敗；本機 outbox 保留')
                 if self.config.get('update_key') and time.monotonic()>=next_runtime_health:
                     from .update_client import save
                     save(self.config_path.parent/'runtime-health.json',{'version':__version__,'time':time.time(),'device_id':self.config['device_id']})
                     next_runtime_health=time.monotonic()+30
-                try:
-                    if time.monotonic()<next_network:
-                        stop.wait(min(interval,.25) if self._snapshot else interval);continue
-                    if time.monotonic() >= next_heartbeat:
-                        self.heartbeat()
-                        next_heartbeat = time.monotonic() + 30
-                    self.flush(max_batches=8,require_empty=False,pause=.05,stop=stop)
-                    retry=5;next_network=0
-                except (ConnectionError,OSError,ValueError):
-                    LOG.warning('管理中心不可用；依最後策略運作，紀錄保留本機待補送')
-                    next_network=time.monotonic()+retry;retry=min(retry*2,60)
+                next_heartbeat=self._link_step(stop,heartbeat_gate,next_heartbeat)
                 stop.wait(min(interval,.25) if self._snapshot else interval)
         finally:self.close_collectors()
 

@@ -7,6 +7,9 @@ from functools import lru_cache
 # Reserved rule in the existing exclude_paths list. Older Agents accept the
 # policy unchanged; the management center also enforces this rule on arrival.
 DEVELOPMENT_RULE='@guarddesk:development-cache:v1'
+TMP_FILE_RULE='@guarddesk:tmp-files:v1'
+FILENAME_PREFIX_NAMESPACE='@guarddesk:filename-prefix:'
+FILENAME_PREFIX_RULE=FILENAME_PREFIX_NAMESPACE+'v1:'
 DEVELOPMENT_DIRECTORIES=frozenset((
     'node_modules','.git','.venv','.tox','.nox','__pycache__',
     '.pytest_cache','.mypy_cache','.ruff_cache','.gradle','.vs',
@@ -43,17 +46,64 @@ def user_path_template(rule):
 
 def validate_user_path_rules(rules):
     for rule in rules:
+        if rule.startswith('@guarddesk:tmp-files:') and rule!=TMP_FILE_RULE:
+            raise ValueError('TMP 檔案排除設定版本或格式不正確')
+        if rule.startswith(FILENAME_PREFIX_NAMESPACE):
+            if filename_prefix_template(rule) is None:
+                raise ValueError('檔名前綴排除請使用完整路徑，僅在檔名結尾加一個 *；不支援目錄萬用字元、?、環境變數或 ..')
+            continue
         if rule.startswith('@guarddesk:hidden-files:') and rule!='@guarddesk:hidden-files:v1':
             raise ValueError('隱藏檔排除設定版本或格式不正確')
         if '{user}' in rule.casefold() and user_path_template(rule) is None:
             raise ValueError('使用者路徑請使用 C:\\Users\\{user}\\資料夾；{user} 僅可出現一次且須為完整目錄，不支援萬用字元、環境變數或 ..')
 
 
-def matches_extra(path,extra):
+def filename_prefix_template(rule):
+    """Explicit versioned opt-in; legacy literal '*' paths stay literal."""
+    if not isinstance(rule,str) or not 1<=len(rule)<=500:return None
+    return _filename_prefix_template(rule)
+
+
+@lru_cache(maxsize=256)
+def _filename_prefix_template(rule):
+    if not rule.startswith(FILENAME_PREFIX_RULE):return None
+    raw=rule[len(FILENAME_PREFIX_RULE):].replace('/','\\').lower()
+    if raw.startswith(('\\\\?\\','\\??\\')):raw=raw[4:]
+    parts=raw.split('\\')
+    if len(parts)<2 or not re.fullmatch(r'[a-z]:',parts[0]):return None
+    if not parts[-1].endswith('*') or not parts[-1][:-1] or raw.count('*')!=1:return None
+    parts[-1]=parts[-1][:-1]
+    if parts.count('{user}')>1 or '{user}' in parts and (parts.index('{user}')<2 or parts[-1]=='{user}'):return None
+    for index,part in enumerate(parts[1:],1):
+        if part=='{user}':continue
+        if not part or index<len(parts)-1 and (part in ('.','..') or part.endswith((' ','.'))) or any(c in part for c in '*?%{}:<>"|') or any(ord(c)<32 for c in part):return None
+    return tuple(parts)
+
+
+def matches_filename_prefix(path,rule):
+    template=filename_prefix_template(rule)
+    parts=normalized_path(path).split('\\')
+    # Match the named entry at one fixed directory level and its descendants,
+    # just like a literal folder rule. Never enumerate or inspect attributes.
+    return bool(template and len(parts)>=len(template) and all(
+        (bool(actual) and actual not in ('.','..')) if expected=='{user}' else actual==expected
+        for actual,expected in zip(parts[:len(template)-1],template[:-1])) and parts[len(template)-1].startswith(template[-1]))
+
+
+def tmp_file(path):
+    # Match the last component only; a folder named cache.tmp may contain documents.
+    return ntpath.basename(os.fspath(path)).partition(':')[0].lower().endswith('.tmp')
+
+
+def matches_extra(path,extra,*,directory=False):
     p=normalized_path(path)
     for rule in extra:
-        if rule==DEVELOPMENT_RULE:
+        if rule==TMP_FILE_RULE:
+            if not directory and tmp_file(path):return True
+        elif rule==DEVELOPMENT_RULE:
             if development_path(p):return True
+        elif rule.startswith(FILENAME_PREFIX_NAMESPACE):
+            if matches_filename_prefix(p,rule):return True
         elif rule=='@guarddesk:hidden-files:v1':
             # This function is also used by Server ingestion: never inspect a
             # remote endpoint path on the Server's own filesystem.
@@ -70,14 +120,23 @@ def matches_extra(path,extra):
     return False
 
 
-FILE_ACTIVITY_KINDS=frozenset(('file.created','file.deleted','file.opened','file.web_handoff',
+FILE_ACTIVITY_KINDS=frozenset(('file.created','file.saved','file.deleted','file.opened','file.written','file.web_handoff',
     'file.copy_candidate','file.open_requested','file.delete_requested','file.renamed','file.moved',
     'file.rename_from','file.rename_to'))
 
 
-def excluded_activity(kind,details,extra):
+def tmp_activity_kind(kind,severity,details):
+    return (kind in FILE_ACTIVITY_KINDS and kind!='file.web_handoff' and
+            (severity=='info' or (severity=='warning' and kind=='file.deleted'
+                                  and details.get('source')=='fallback_snapshot')))
+
+
+def excluded_activity(kind,details,extra,severity='info'):
     """Filter ordinary file activity, preserving security and boundary crossings."""
     if kind not in FILE_ACTIVITY_KINDS or not extra:return False
+    if TMP_FILE_RULE in extra and not tmp_activity_kind(kind,severity,details):
+        extra=[rule for rule in extra if rule!=TMP_FILE_RULE]
+        if not extra:return False
     paths=[details[k] for k in ('path','source_path','destination_path') if k in details]
     # An incomplete rename/move must remain visible, not be mistaken for an
     # operation entirely within an excluded directory.
@@ -152,10 +211,10 @@ def profile_hive(path):
     return bool(parent==current or ntpath.dirname(parent)==profiles)
 
 
-def excluded(path, extra=(), runtime=None):
+def excluded(path, extra=(), runtime=None, *, directory=False):
     p=normalized_path(path)
     if internal_health_path(p):return True
-    if matches_extra(p,extra):return True
+    if matches_extra(path,extra,directory=directory):return True
     if installer_rollback_path(p):return True
     system=os.environ.get('SystemRoot',r'C:\Windows')
     defaults=[system,r'C:\$Recycle.Bin',r'C:\System Volume Information']

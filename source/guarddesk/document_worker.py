@@ -22,6 +22,9 @@ class DocumentWorker:
         self.pending_access=collections.OrderedDict()
         from .document_queue import CandidateQueue
         self.candidate_queue=CandidateQueue(agent)
+        from .document_writes import WriteObserver
+        from .document_process import ProcessResolver
+        self.writer=WriteObserver(self.emit_write,admit=self.admit_write,resolver=ProcessResolver(),overflow=self.write_overflow)
 
     def start(self):
         self.thread=threading.Thread(target=self.run,name='GuardDesk document audit',daemon=True);self.thread.start();return self
@@ -35,9 +38,9 @@ class DocumentWorker:
         packet=getattr(self.agent,'custom_packet',None) or {}
         return check(packet['documents']) if 'documents' in packet else []
 
-    def excluded(self,path):
+    def excluded(self,path,*,directory=False):
         from .file_exclusions import excluded
-        return excluded(path,self.policy['file_audit']['exclude_paths'],self.agent.audit_runtime)
+        return excluded(path,self.policy['file_audit']['exclude_paths'],self.agent.audit_runtime,directory=directory)
 
     def emit(self,details,occurred):
         from .document_scope import permits
@@ -61,6 +64,24 @@ class DocumentWorker:
                 self.filtered_access[why]=self.filtered_access.get(why,0)+1
                 return
             if self.open_reducer.admit(details):self.candidate_queue.add(details,occurred,kind='file.opened')
+
+    def write_overflow(self,count):self.candidate_queue.overflow+=count
+
+    def admit_write(self,details,occurred):
+        from .document_scope import permits
+        if not permits(details['path'],self.policy['file_audit'],self.agent.config.get('audit_watch',str(self.agent.root)),self.agent.audit_runtime):return False
+        # Once the process is verified, writes are independent of the read-only
+        # foreground, service and process filters.
+        details['interaction']='not_assessed_for_write'
+        return True
+
+    def emit_write(self,details,occurred):
+        # Policy may have changed while a burst was buffered. Recheck scope and
+        # path exclusions before durable admission, without inventing new input.
+        from .document_scope import permits
+        audit=self.policy['file_audit']
+        if audit['enabled'] and permits(details['path'],audit,self.agent.config.get('audit_watch',str(self.agent.root)),self.agent.audit_runtime):
+            self.candidate_queue.add(details,occurred,kind='file.written')
 
     def drain_access(self):
         # Slow application startup may read before showing its document window.
@@ -110,6 +131,7 @@ class DocumentWorker:
         # Revoke stale collection before any fallible ACL restoration or policy
         # query. A conflicting SACL must not keep an old ETW scope alive.
         if self.trace and (signature!=self.trace_signature or not collect):
+            self.writer.gap()
             self.trace.stop();self.trace=None;self.correlator.gap();self.reader.gap()
             self.open_reducer.gap();self.context.close()
             self.pending_access.clear()
@@ -123,7 +145,7 @@ class DocumentWorker:
         if read_rules or (self.directory/'document-sacl.sqlite3').exists():
             if not self.manager:
                 from .document_sacl import Manager
-                self.manager=Manager(self.directory,excluded=self.excluded)
+                self.manager=Manager(self.directory,excluded=self.excluded,excluded_directory=lambda path:self.excluded(path,directory=True))
             if packet.get('busy'):self.report={**self.report,'status':'paused_busy'}
             elif time.monotonic()>=self.next_sacl_retry:
                 try:self.report=self.manager.tick(read_rules)
@@ -146,6 +168,7 @@ class DocumentWorker:
                 if len(batch)<256 or time.monotonic()>=drain_until:break
             stats=self.trace.stats
             if stats['consumer_result']:
+                self.writer.gap()
                 self.correlator.gap();self.reader.gap();self.trace.stop();self.trace=None;self.next_retry=time.monotonic()+60
                 self.open_reducer.gap()
                 self.pending_access.clear()
@@ -153,6 +176,7 @@ class DocumentWorker:
                 self.read_report={'status':'trace_failed',**stats}
                 return
             if stats['dropped']!=self.last_loss or stats['consumer_result']:
+                self.writer.gap()
                 self.correlator.gap();self.reader.gap()
                 self.open_reducer.gap()
                 self.pending_access.clear()
@@ -164,8 +188,9 @@ class DocumentWorker:
             for event in events:
                 from .document_scope import permits
                 if permits(event['path'],general,watch,self.agent.audit_runtime):
-                    self.reader.feed(event);self.correlator.feed(event)
+                    self.reader.feed(event);self.correlator.feed(event);self.writer.feed(event)
             self.reader.tick()
+            self.writer.tick()
             self.drain_access()
             self.candidate_queue.overflow+=self.reader.pending_overflow;self.reader.pending_overflow=0
             self.copy_report={'status':'collecting_candidates','evidence':'completed_io_range_candidate','whole_file_copy_confirmed':False,**stats,'ambiguous_suppressed':self.correlator.ambiguous}
@@ -173,6 +198,7 @@ class DocumentWorker:
             if stats.get('unsupported_volumes'):self.read_report['status']='collecting_native_reads_limited'
             from .file_access import options
             self.read_report.update(file_access_filter=options(general['exclude_paths']),filtered_access=dict(self.filtered_access),filter_minimum_version='0.4.54')
+            self.read_report['write_activity']=self.writer.status()
             self.read_report['pending_interaction']=len(self.pending_access)
             if options(general['exclude_paths'])['mode']=='interactive':
                 context_status=self.read_report['interaction_context']
@@ -218,6 +244,7 @@ class DocumentWorker:
                 if self.trace:self.trace.stop()
             finally:
                 try:
+                    self.writer.tick(force=True)
                     # At most four owned batches; preserve queued evidence when
                     # a scope is revoked or the companion exits normally.
                     for _ in range(4):

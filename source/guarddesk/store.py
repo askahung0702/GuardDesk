@@ -98,6 +98,13 @@ class Store:
             CREATE INDEX IF NOT EXISTS update_jobs_release_created ON update_jobs(release_id,created DESC,id DESC);
             CREATE TABLE IF NOT EXISTS update_status(job_id TEXT NOT NULL REFERENCES update_jobs(id),role TEXT NOT NULL,state TEXT NOT NULL,version TEXT NOT NULL,error TEXT NOT NULL,received REAL NOT NULL,PRIMARY KEY(job_id,role));
             CREATE TABLE IF NOT EXISTS update_presence(device_id TEXT NOT NULL REFERENCES devices(id),role TEXT NOT NULL,version TEXT NOT NULL,received REAL NOT NULL,broker_version TEXT NOT NULL DEFAULT '',PRIMARY KEY(device_id,role));
+            CREATE TABLE IF NOT EXISTS update_broker_presence(device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,version TEXT NOT NULL,received REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS update_dispatch_previews(id TEXT PRIMARY KEY,actor TEXT NOT NULL,expires REAL NOT NULL,plan TEXT NOT NULL,result TEXT);
+            CREATE INDEX IF NOT EXISTS update_dispatch_preview_expiry ON update_dispatch_previews(expires);
+            CREATE TABLE IF NOT EXISTS update_dispatch_jobs(job_id TEXT PRIMARY KEY REFERENCES update_jobs(id) ON DELETE CASCADE,legacy_preflight INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS update_retired_packages(release_id TEXT PRIMARY KEY REFERENCES update_releases(id),removed REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS update_downloads(id TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES update_jobs(id) ON DELETE CASCADE,role TEXT NOT NULL,expires REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS update_download_expiry ON update_downloads(expires);
             CREATE TABLE IF NOT EXISTS update_diagnostics(device_id TEXT NOT NULL REFERENCES devices(id),role TEXT NOT NULL,code TEXT NOT NULL,version TEXT NOT NULL,received REAL NOT NULL,PRIMARY KEY(device_id,role));
             CREATE TABLE IF NOT EXISTS updater_refresh(device_id TEXT PRIMARY KEY REFERENCES devices(id),id TEXT NOT NULL,job_id TEXT NOT NULL,version TEXT NOT NULL,created REAL NOT NULL,expires REAL NOT NULL,state TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
@@ -123,7 +130,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS extended_status(device_id TEXT PRIMARY KEY REFERENCES devices(id),body TEXT NOT NULL,received REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS endpoint_removals(id TEXT PRIMARY KEY,device_id TEXT NOT NULL REFERENCES devices(id),actor TEXT NOT NULL,reason TEXT NOT NULL,created REAL NOT NULL,expires REAL NOT NULL,status TEXT NOT NULL,main TEXT NOT NULL,native TEXT NOT NULL,error TEXT NOT NULL DEFAULT '');
             CREATE INDEX IF NOT EXISTS removal_device ON endpoint_removals(device_id,created);
-            CREATE TABLE IF NOT EXISTS endpoint_file_removals(job_id TEXT PRIMARY KEY,device_id TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'queued',token_hash TEXT NOT NULL DEFAULT '',updated REAL NOT NULL,report_until REAL NOT NULL DEFAULT 0,error_code TEXT NOT NULL DEFAULT '',winerror INTEGER,helper_cleanup TEXT NOT NULL DEFAULT 'not_scheduled');
+            CREATE TABLE IF NOT EXISTS endpoint_file_removals(job_id TEXT PRIMARY KEY,device_id TEXT NOT NULL,phase TEXT NOT NULL DEFAULT 'queued',token_hash TEXT NOT NULL DEFAULT '',updated REAL NOT NULL,report_until REAL NOT NULL DEFAULT 0,error_code TEXT NOT NULL DEFAULT '',winerror INTEGER,helper_cleanup TEXT NOT NULL DEFAULT 'not_scheduled',keep_process_audit INTEGER NOT NULL DEFAULT 0,authorization_issued INTEGER NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS file_removal_device ON endpoint_file_removals(device_id);
             CREATE TABLE IF NOT EXISTS remote_grants(username TEXT NOT NULL REFERENCES users(username),device_id TEXT NOT NULL REFERENCES devices(id),can_control INTEGER NOT NULL,expires REAL NOT NULL,PRIMARY KEY(username,device_id));
             CREATE TABLE IF NOT EXISTS remote_all_grants(username TEXT PRIMARY KEY REFERENCES users(username),can_control INTEGER NOT NULL,expires REAL NOT NULL);
@@ -154,6 +161,10 @@ class Store:
             for table in ('policy_sets', 'policy_set_versions'):
                 if 'operations' not in {r[1] for r in db.execute('PRAGMA table_info('+table+')')}:
                     db.execute("ALTER TABLE "+table+" ADD COLUMN operations TEXT NOT NULL DEFAULT '[]'")
+            removal_columns={r[1] for r in db.execute('PRAGMA table_info(endpoint_file_removals)')}
+            for column in ('keep_process_audit','authorization_issued'):
+                if column not in removal_columns:
+                    db.execute('ALTER TABLE endpoint_file_removals ADD COLUMN '+column+' INTEGER NOT NULL DEFAULT 0')
             from .event_storage import install_schema
             install_schema(db)
             from .audit_search_index import install as install_search
@@ -169,8 +180,13 @@ class Store:
             from .endpoint_purge import install as install_purge
             install_purge(db)
             columns={r[1] for r in db.execute('PRAGMA table_info(devices)')}
+            db.execute('CREATE TABLE IF NOT EXISTS heartbeat_only_periods('
+                       'device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE, '
+                       'started REAL NOT NULL, ended REAL, PRIMARY KEY(device_id,started))')
+            for name in ('heartbeat_only','mode_revision','mode_ack','last_offline_seconds'):
+                if name not in columns:db.execute('ALTER TABLE devices ADD COLUMN '+name+' INTEGER NOT NULL DEFAULT 0')
             if 'zip_sha256' not in {r[1] for r in db.execute('PRAGMA table_info(audit_exports)')}:db.execute("ALTER TABLE audit_exports ADD COLUMN zip_sha256 TEXT NOT NULL DEFAULT ''")
-            for name,definition in [('group_id','TEXT REFERENCES endpoint_groups(id)'),('management_revision','INTEGER NOT NULL DEFAULT 1'),('policy_fingerprint',"TEXT NOT NULL DEFAULT ''"),('last_address',"TEXT NOT NULL DEFAULT ''"),('enrolled_at','REAL NOT NULL DEFAULT 0')]:
+            for name,definition in [('group_id','TEXT REFERENCES endpoint_groups(id)'),('management_revision','INTEGER NOT NULL DEFAULT 1'),('policy_fingerprint',"TEXT NOT NULL DEFAULT ''"),('last_address',"TEXT NOT NULL DEFAULT ''"),('enrolled_at','REAL NOT NULL DEFAULT 0'),('last_contact','REAL NOT NULL DEFAULT 0')]:
                 if name not in columns:db.execute('ALTER TABLE devices ADD COLUMN '+name+' '+definition)
             # Serialize the once-only default merge with other initializers.
             # Keep the schema installation independent of policy publication.

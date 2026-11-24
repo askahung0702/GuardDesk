@@ -4,7 +4,7 @@ import secrets
 import shutil
 import time
 from . import update_packages as packages
-from .software_contract import CAPABILITY, PURPOSE, TERMINAL, MAX_PACKAGE, LIBRARY_LIMIT, MAX_PACKAGES, GIB, hex_id, manifest
+from .software_contract import CAPABILITY, PURPOSE, TERMINAL, MAX_PACKAGE, LIBRARY_LIMIT, MAX_PACKAGES, GIB, hex_id, manifest, version as msi_version
 from .management import ManagementError
 from .store import Store, canonical
 
@@ -84,11 +84,25 @@ def delete_package(store,db,user,body):
 
 
 def conflicting(db,did):
+    from .updates import switching
     from .updater_maintenance import active as updating
     from .custom_settings import action_leased
-    return (updating(db,did) or action_leased(db,did) or
+    return (updating(db,did) or action_leased(db,did) or switching(db,did) or
         db.execute("SELECT 1 FROM update_jobs WHERE device_id=? AND status='pending' AND expires>?",(did,time.time())).fetchone() or
         db.execute("SELECT 1 FROM endpoint_removals WHERE device_id=? AND status IN ('queued','running','failed')",(did,)).fetchone())
+
+
+def package_supported(agent_version,package):
+    # Older authenticated Agents keep their original protocol and three-part
+    # packages. Extended numeric metadata first becomes supported in Agent 0.4.110.
+    return len(msi_version(package['version']))==3 or packages.version(agent_version)>=(0,4,110)
+
+
+def require_package_support(db,did,package):
+    if len(msi_version(package['version']))==3:return
+    presence=db.execute('SELECT version FROM software_presence WHERE device_id=?',(did,)).fetchone()
+    if not presence or not package_supported(presence[0],package):
+        raise ManagementError(409,'此MSI版本超過三段，請先將所選端點Agent更新至0.4.110以上')
 
 
 def create_jobs(db,user,body):
@@ -96,13 +110,16 @@ def create_jobs(db,user,body):
     if set(body)!={'package_id','device_ids','confirm'} or body['confirm']!='install-msi-machine':raise ValueError('請確認以 SYSTEM 靜默安裝此 MSI')
     pid=hex_id(body['package_id'],64);ids=body['device_ids']
     if not isinstance(ids,list) or not 1<=len(ids)<=20 or any(not isinstance(x,str) for x in ids) or len(set(ids))!=len(ids):raise ValueError('請選擇 1–20 台不同端點')
-    if not db.execute('SELECT 1 FROM software_packages WHERE id=?',(pid,)).fetchone():raise ManagementError(404,'找不到 MSI 套件')
+    package=db.execute('SELECT manifest FROM software_packages WHERE id=?',(pid,)).fetchone()
+    if not package:raise ManagementError(404,'找不到 MSI 套件')
+    package=manifest(json.loads(package[0]))
     # Validate the whole selection before inserting, including callers without an outer transaction.
     for did in ids:
         hex_id(did,24)
         if not db.execute('SELECT 1 FROM devices WHERE id=? AND revoked=0',(did,)).fetchone():raise ManagementError(404,'找不到有效端點')
         presence=db.execute('SELECT received FROM software_presence WHERE device_id=?',(did,)).fetchone()
         if not presence or time.time()-presence[0]>120:raise ManagementError(409,'端點尚未回報 MSI 安裝能力，請先更新配套 Agent 並確認服務上線')
+        require_package_support(db,did,package)
         if active(db,did) or conflicting(db,did):raise ManagementError(409,'端點已有軟體、更新、移除或維護工作')
     result=[];now=time.time()
     for did in ids:
@@ -150,11 +167,12 @@ def agent_route(store,db,device,path,body):
         db.execute("UPDATE software_jobs SET state='cancelled',error='EXPIRED_BEFORE_INSTALL',updated=? WHERE device_id=? AND state IN ('queued','downloading') AND expires<=?",(now,device['id'],now))
         row=db.execute("SELECT * FROM software_jobs WHERE device_id=? AND state IN ('queued','downloading','installing','review_required') ORDER BY created LIMIT 1",(device['id'],)).fetchone()
         if not row or conflicting(db,device['id']):return {'job':None}
+        m=json.loads(db.execute('SELECT manifest FROM software_packages WHERE id=?',(row['package_id'],)).fetchone()[0])
+        if not package_supported(body['version'],m):return {'job':None,'waiting_for':'agent_upgrade_required'}
         if row['state']=='queued':
             count=db.execute("SELECT count(*) FROM software_jobs WHERE state IN ('installing','review_required') OR (state='downloading' AND expires>?)",(now,)).fetchone()[0]
             if count>=2:return {'job':None,'waiting_for':'batch_slot'}
             db.execute("UPDATE software_jobs SET state='downloading',updated=? WHERE id=?",(now,row['id']))
-        m=json.loads(db.execute('SELECT manifest FROM software_packages WHERE id=?',(row['package_id'],)).fetchone()[0])
         payload={'purpose':PURPOSE,'id':row['id'],'device_id':device['id'],'expires':row['expires'],'package':m}
         return {'job':packages.sign(packages.signer(store.path.resolve().parent),payload),'state':row['state']}
     row=valid(db,device,body.get('job_id'))
@@ -163,6 +181,8 @@ def agent_route(store,db,device,path,body):
         return {'state':row['state']}
     if path.endswith('/authorize'):
         if set(body)!={'job_id'} or row['state']!='downloading' or row['expires']<=now or conflicting(db,device['id']):raise ManagementError(409,'工作已取消、過期或端點忙碌；不開始安裝')
+        m=json.loads(db.execute('SELECT manifest FROM software_packages WHERE id=?',(row['package_id'],)).fetchone()[0])
+        require_package_support(db,device['id'],m)
         db.execute("UPDATE software_jobs SET state='installing',updated=? WHERE id=?",(now,row['id']))
         Store.event(db,device['id'],'software.installing','warning',{'job_id':row['id']})
         return {'authorized':True}

@@ -3,6 +3,9 @@ import argparse,hashlib,importlib.abc,importlib.util,json,sys,unittest
 from pathlib import Path
 from PyInstaller.archive.readers import CArchiveReader
 
+from tools.offline_build_guard import guarded_main
+
+@guarded_main
 def main():
     p=argparse.ArgumentParser();p.add_argument('--exe',type=Path,required=True)
     p.add_argument('--role',choices=('product','mis'),required=True)

@@ -27,9 +27,10 @@ def prepare(store,source,version,stop):
     expected,overrides=project(source,expected);root=store.path.resolve().parent
     with store.connect() as db:
         prior=db.execute('SELECT * FROM update_releases WHERE version=?',(version,)).fetchone()
-        used=db.execute('SELECT count(*) FROM update_releases').fetchone()[0]
+        used=updates.update_retention.count(db)
+        signed_before=db.execute('SELECT 1 FROM update_releases LIMIT 1').fetchone() is not None
         enrolled=db.execute('SELECT count(*) FROM devices').fetchone()[0]
-    if not (root/'update-signing').exists() and (used or enrolled):raise BundleError('signing_unavailable')
+    if not (root/'update-signing').exists() and (signed_before or enrolled):raise BundleError('signing_unavailable')
     private=packages.signer(root)
     if prior:
         existing=packages.validate_manifest(packages.verify(json.loads(prior['envelope']),packages.public_key(private)))

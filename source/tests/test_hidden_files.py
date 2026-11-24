@@ -81,6 +81,18 @@ class HiddenMetadataTest(unittest.TestCase):
         for i in range(5000):resolver.remember('C:\\Owned\\cached'+str(i),0x20)
         self.assertEqual(len(resolver.cache),2048)
 
+    def test_file_type_checks_stream_base_and_refreshes_leaf_without_following_reparse(self):
+        folder=r'c:\owned\profile'
+        metadata=Metadata({folder:0x10,r'c:\jump':0x410,r'c:\missing':None})
+        resolver=HiddenPaths(metadata)
+        self.assertEqual(resolver.file_type(folder+':stream'),'directory')
+        self.assertIsNone(resolver.file_type(r'C:\jump\remote'))
+        self.assertIsNone(resolver.file_type(r'\\server\share\name'))
+        self.assertIsNone(resolver.file_type(r'C:\missing'))
+        self.assertNotIn(r'c:\jump\remote',metadata.calls)
+        self.assertEqual(resolver.file_type(r'C:\Owned\README'),'file')
+        metadata.values[r'c:\owned\readme']=0x10
+        self.assertEqual(resolver.file_type(r'C:\Owned\README'),'directory')
     def test_server_rule_is_pure_and_only_fixed_root_installer_churn_is_default(self):
         a=r'C:\Config.Msi\38f7f795.rbs';b=r'D:\Config.Msi\38f7f7af.rbf';doc=r'C:\Docs\38f7f7af.rbf'
         with patch('guarddesk.hidden_files.hidden',side_effect=AssertionError('Server must not query endpoint path')):

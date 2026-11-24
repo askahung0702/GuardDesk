@@ -34,8 +34,11 @@ def snapshot(source,target,migration=False):
                 if 'deployment_codes' in tables:copy.execute('UPDATE deployment_codes SET revoked=1')
                 if 'update_jobs' in tables:
                     if copy.execute("SELECT 1 FROM update_status s JOIN update_jobs j ON j.id=s.job_id WHERE j.status='pending' AND s.state IN ('applying','restarting') LIMIT 1").fetchone():raise ValueError('請先完成或回復正在切換的 Agent 更新，再搬移中心')
-                    copy.execute("UPDATE update_jobs SET status='cancelled' WHERE status='pending'")
+                    copy.execute("UPDATE update_jobs SET status='cancelled' WHERE status IN ('pending','reserved')")
+                    if 'update_dispatch_previews' in tables:copy.execute('DELETE FROM update_dispatch_previews')
+                    if 'update_downloads' in tables:copy.execute('DELETE FROM update_downloads')
                 if 'update_presence' in tables:copy.execute('DELETE FROM update_presence')
+                if 'update_broker_presence' in tables:copy.execute('DELETE FROM update_broker_presence')
                 if 'remote_sessions' in tables:copy.execute("UPDATE remote_sessions SET status='closed',ended_reason='server_migration' WHERE status IN ('requested','active')")
                 if 'remote_presence' in tables:copy.execute('DELETE FROM remote_presence')
                 copy.commit()

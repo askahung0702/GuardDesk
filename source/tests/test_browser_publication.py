@@ -76,7 +76,7 @@ class PublicationTest(unittest.TestCase):
             with zipfile.ZipFile(data,'a') as z:z.writestr(name,b'bad')
             with self.assertRaises(ValueError):pub.inspect_bundle(data.getvalue())
         with self.assertRaises(ValueError):pub.inspect_bundle(b'x'*(pub.MAX_BUNDLE+1))
-        manifest=host.EXTENSION/'manifest.json';body=json.loads(manifest.read_text(encoding='utf-8'));body['version']='0.5.1';manifest.write_text(json.dumps(body),encoding='utf-8')
+        manifest=host.EXTENSION/'manifest.json';body=json.loads(manifest.read_text(encoding='utf-8'));parts=body['version'].split('.');parts[-1]=str(int(parts[-1])+1);body['version']='.'.join(parts);manifest.write_text(json.dumps(body),encoding='utf-8')
         with self.assertRaisesRegex(ValueError,'source/version'):pub.inspect_bundle(self.payload)
     def test_reimport_same_generation_and_resume_interrupted_copy_without_overwrite(self):
         a=pub.install(self.data,self.payload);self.assertEqual(pub.install(self.data,self.payload)['generation'],a['generation'])

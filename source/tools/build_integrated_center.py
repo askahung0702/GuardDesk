@@ -14,6 +14,9 @@ def norm(c):return c.replace(co_filename='reviewed',co_consts=tuple(norm(v) if i
 def write(p,v):p.write_text(json.dumps(v,ensure_ascii=False,indent=2),encoding='utf-8')
 def pins(root):return {p.relative_to(root).as_posix():sha(p) for name in ('guarddesk','tools','native','browser-extension','tests') for p in (root/name).rglob('*') if p.is_file() and '__pycache__' not in p.parts}
 
+from tools.offline_build_guard import guarded_main
+
+@guarded_main
 def main():
     p=argparse.ArgumentParser();p.add_argument('--version',required=True);p.add_argument('--cohort',type=Path,required=True);p.add_argument('--service',type=Path,required=True);p.add_argument('--notices',type=Path,required=True);p.add_argument('--tests',type=Path,required=True);a=p.parse_args()
     if S.name!='remote-next-src':raise ValueError('Use the isolated development source')
@@ -70,7 +73,8 @@ def main():
                 embedded={n.replace('\\','/'):n for n in archive.toc}
                 for n in ('GuardDeskMisNative.dll','remote-cohort.json'):assert hashlib.sha256(archive.extract(embedded['_internal/remote/'+n])).hexdigest()==sha(C/'_internal/remote'/n)
                 assert not any(n.endswith(('GuardDeskRemoteWorker.exe','GuardDeskRemoteMedia.exe','GuardDeskRemoteBridge.dll')) for n in embedded)
-        assert {'guarddesk.machine_service','guarddesk.remote_service_worker','guarddesk.native_installer','guarddesk.remote_native_broker'}<=set(verified['console'])
+        assert {'guarddesk.machine_service','guarddesk.remote_service_worker','guarddesk.native_installer','guarddesk.remote_native_broker','guarddesk.service_recovery'}<=set(verified['console'])
+        assert 'guarddesk.service_recovery' in verified['agent']
         assert sha(A/'_internal/GuardDeskService.exe')==service['sha256'] and sha(A/'_internal/GuardDeskMIS.exe')==sha(mis)
         validate_layout(A);assert read_cohort(A)['build_id']==cohort['build_id']
         files={q.relative_to(A).as_posix():{'sha256':sha(q),'bytes':q.stat().st_size} for q in A.rglob('*') if q.is_file()}

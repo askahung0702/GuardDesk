@@ -16,6 +16,9 @@ import threading
 def sha(p):
     with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 
+from tools.offline_build_guard import guarded_main
+
+@guarded_main
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--helper-root',type=Path,required=True)

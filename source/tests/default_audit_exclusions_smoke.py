@@ -15,7 +15,7 @@ import urllib.request
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from guarddesk import __version__
 from guarddesk.policy import DEFAULT_POLICY
-from guarddesk.policy_defaults import ROAMING,APPLICATIONS,MARKER
+from guarddesk.policy_defaults import ROAMING,CLAUDE_TEMP,APPLICATIONS,MARKER
 from guarddesk.store import Store,canonical
 from playwright.sync_api import sync_playwright,expect
 
@@ -27,7 +27,7 @@ def main():
         store.add_user('owned-mis',password)
         with store.connect() as db:
             initial=Store.policy(db)['body']
-            assert initial['file_audit']['exclude_paths']==[ROAMING]
+            assert initial['file_audit']['exclude_paths']==[ROAMING,CLAUDE_TEMP]
             assert initial['application_audit_exclusions']==list(APPLICATIONS)
             legacy=copy.deepcopy(DEFAULT_POLICY);legacy['file_audit']['exclude_paths']=[r'D:\Owned']
             legacy['application_audit_exclusions']=['custom.exe']

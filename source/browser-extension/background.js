@@ -86,7 +86,12 @@ async function flush() {
     // Do not hold the persistence lock during a native timeout: new events
     // must remain durable even while the host is unavailable.
     const ack=[];
-    for(const item of data.queue.slice(0,50)){const reply=await native(item);if(reply.recorded===false){policyAt=0;break;}ack.push(item.event_id);}
+    for(const item of data.queue.slice(0,50)){
+      // Browsing comes only from Agent's saved-history collector. Consume old
+      // unsent copies and the retired diagnostic without forwarding to Host.
+      if(item.type==='navigation'||item.type==='page_title'||(item.type==='upload_gap'&&item.reason==='request_body_unavailable')){ack.push(item.event_id);continue;}
+      const reply=await native(item);if(reply.recorded===false){policyAt=0;break;}ack.push(item.event_id);
+    }
     await serialized(async()=>{
       const latest=await chrome.storage.local.get({queue:[],queue_overflow:0});
       const ids=new Set(ack),queue=latest.queue.filter(item=>!ids.has(item.event_id));
@@ -102,20 +107,8 @@ async function flush() {
     await chrome.action.setBadgeText({text:'!'});await chrome.action.setBadgeBackgroundColor({color:'#b64c42'});
   } finally{flushing=false;}
 }
-function navigate(d) {
-  if(d.frameId!==0||!/^https?:\/\//i.test(d.url))return;
-  serialized(async()=>{const data=await chrome.storage.local.get({host_status:{}});if(data.host_status.browser_audit===false)return;await persist([event({type:'navigation',url:d.url,tab_id:d.tabId,timestamp:d.timeStamp})]);}).catch(console.error);
-}
-chrome.webNavigation.onCommitted.addListener(navigate);
-chrome.webNavigation.onHistoryStateUpdated.addListener(navigate);
-chrome.webNavigation.onCompleted.addListener(d=>{
-  if(d.frameId!==0||!/^https?:\/\//i.test(d.url))return;
-  serialized(async()=>{
-    const status=await chrome.storage.local.get({host_status:{}});if(status.host_status.browser_audit===false)return;
-    const tab=await chrome.tabs.get(d.tabId);if(tab.url!==d.url||!tab.title)return;
-    await persist([event({type:'page_title',url:d.url,title:tab.title.slice(0,500),timestamp:d.timeStamp,tab_id:d.tabId})]);
-  }).catch(console.error);
-});
+// General browsing is collected by Agent's read-only History worker only.
+// No navigation/title listener, per-navigation storage, or Native Host call.
 
 // Nonblocking metadata only. MAIN-world references are untrusted candidates;
 // no file reading, hashing, response-body parsing or per-packet native calls.
@@ -146,7 +139,8 @@ chrome.webRequest.onBeforeRequest.addListener(d=>{
   }
   const unavailable=Boolean(d.requestBody?.error),truncated=raw.length>256||files.length===32;
   const memory=!files.length&&currentPolicy?.memory_upload_v1===true&&selection&&selection.documentId===d.documentId&&Date.now()-selection.at<300000&&(unavailable||raw.some(x=>x.bytes instanceof ArrayBuffer));
-  if(!files.length&&!unavailable&&!memory)return;
+  // An unavailable body without file evidence is intentionally not collected.
+  if(!files.length&&!memory)return;
   if(activeIds.size>=MAX_ACTIVE){
     if(!capacityNoticePending){capacityNoticePending=true;const url=safeUrl(d.url),timestamp=d.timeStamp;
       serialized(async()=>{const data=await chrome.storage.local.get({gap_at:0});if(Date.now()-data.gap_at>300000)await persist([event({type:'upload_gap',reason:'request_capacity',url,timestamp})],{gap_at:Date.now()});}).catch(console.error).finally(()=>{capacityNoticePending=false;});}
@@ -177,7 +171,7 @@ chrome.webRequest.onBeforeRequest.addListener(d=>{
       // itself reported unavailable body metadata.
       if(!files.length&&!unavailable&&!intents.length){activeIds.delete(observed.requestId);return;}
     }
-    if(!files.length){activeIds.delete(observed.requestId);await gap(memory?'body_metadata_unresolved':'request_body_unavailable');return;}
+    if(!files.length){activeIds.delete(observed.requestId);await gap('body_metadata_unresolved');return;}
     if(Object.keys(data.active_uploads).length>=MAX_ACTIVE&&!data.active_uploads[observed.requestId]){activeIds.delete(observed.requestId);await gap('request_capacity');return;}
     const a=data.active_uploads[observed.requestId]||{upload_id:crypto.randomUUID(),files,site_origin:siteOrigin,method:observed.method,files_truncated:truncated,started:Date.now(),url:safeUrl(observed.url),url_truncated:observed.url.length>8192,tabId:observed.tabId};
     data.active_uploads[observed.requestId]=a;

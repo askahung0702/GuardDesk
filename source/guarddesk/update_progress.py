@@ -21,7 +21,7 @@ ACCOUNTS="CASE WHEN json_type(d.inventory,'$.user_accounts')='array' THEN json_e
 
 
 def waiting(alias='j'):
-    return f"""{alias}.status='pending' AND {alias}.expires>:now
+    return f"""{alias}.status IN ('pending','reserved') AND {alias}.expires>:now
       AND EXISTS (SELECT 1 FROM update_status s WHERE s.job_id={alias}.id AND s.state IN ('queued','waiting'))
       AND NOT EXISTS (SELECT 1 FROM update_status s WHERE s.job_id={alias}.id AND s.state IN {ACTIVE})
       AND NOT EXISTS (SELECT 1 FROM updater_refresh u WHERE u.device_id={alias}.device_id AND u.state='active' AND u.expires>:now)"""
@@ -63,9 +63,9 @@ def conditions(f,now):
         if f['release_id']:clauses.append('j.release_id=:release_id');args['release_id']=f['release_id']
         state=f['state']
         if state=='waiting':clauses.append('('+waiting()+')')
-        elif state=='running':clauses.append(f"((j.status='pending' AND j.expires>:now AND EXISTS (SELECT 1 FROM update_status s WHERE s.job_id=j.id AND s.state IN {ACTIVE})) OR EXISTS (SELECT 1 FROM updater_refresh u WHERE u.job_id=j.id AND u.device_id=j.device_id AND u.state='active' AND u.expires>:now))")
-        elif state=='pending':clauses.append("j.status='pending' AND j.expires>:now")
-        elif state=='expired':clauses.append("j.status='pending' AND j.expires<=:now")
+        elif state=='running':clauses.append(f"((j.status='pending' AND EXISTS (SELECT 1 FROM update_status s WHERE s.job_id=j.id AND s.state IN {ACTIVE} AND (j.expires>:now OR s.state IN ('applying','restarting')))) OR EXISTS (SELECT 1 FROM updater_refresh u WHERE u.job_id=j.id AND u.device_id=j.device_id AND u.state='active' AND u.expires>:now))")
+        elif state=='pending':clauses.append("j.status IN ('pending','reserved') AND (j.expires>:now OR EXISTS(SELECT 1 FROM update_status s WHERE s.job_id=j.id AND s.state IN ('applying','restarting')))")
+        elif state=='expired':clauses.append("j.status IN ('pending','reserved') AND j.expires<=:now AND NOT EXISTS(SELECT 1 FROM update_status s WHERE s.job_id=j.id AND s.state IN ('applying','restarting'))")
         elif state in ('completed','failed','cancelled'):clauses.append('j.status=:status');args['status']=state
     return prefix,clauses,args
 
@@ -131,7 +131,11 @@ def devices(db,f,now):
             except (ValueError,TypeError):row[key]=''
         row['accounts']=json.loads(row['accounts']) if row['accounts'] else []
         row['accounts']=[a for a in row['accounts'][:32] if isinstance(a,str)] if isinstance(row['accounts'],list) else []
-        job=db.execute('SELECT j.id,j.status,j.expires,r.version FROM update_jobs j JOIN update_releases r ON r.id=j.release_id WHERE j.device_id=? ORDER BY j.created DESC,j.id DESC LIMIT 1',(row['id'],)).fetchone()
+        job=db.execute("""SELECT j.id,j.status,j.expires,r.version,
+            (j.status IN ('pending','reserved') AND j.expires<=? AND NOT EXISTS
+                (SELECT 1 FROM update_status s WHERE s.job_id=j.id AND s.state IN ('applying','restarting'))) AS expired
+            FROM update_jobs j JOIN update_releases r ON r.id=j.release_id WHERE j.device_id=?
+            ORDER BY j.created DESC,j.id DESC LIMIT 1""",(now,row['id'])).fetchone()
         row['latest_job']=dict(job) if job else None
     return {'jobs':[],'pending_devices':rows,'progress':meta(f,total,number,pages,0,'devices')}
 
@@ -153,7 +157,7 @@ def cancel_waiting(db,user,body):
     for jid in ids:
         row=db.execute('SELECT j.device_id FROM update_jobs j WHERE j.id=:id AND ('+cancellable()+')',{'id':jid,'now':now}).fetchone()
         if not row:continue
-        changed=db.execute("UPDATE update_jobs SET status='cancelled' WHERE id=? AND status='pending'",(jid,)).rowcount
+        changed=db.execute("UPDATE update_jobs SET status='cancelled' WHERE id=? AND status IN ('pending','reserved')",(jid,)).rowcount
         if changed:
             Store.event(db,row['device_id'],'update.cancelled','warning',{'actor':user['username'],'job_id':jid,'reason':'bulk_unclaimed_waiting'})
             cancelled.append(jid)

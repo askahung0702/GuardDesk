@@ -7,9 +7,10 @@ import time
 import ntpath
 from pathlib import Path
 from .windows_events import excluded
+from .file_exclusions import TMP_FILE_RULE, tmp_file
 
-# Names only: content, size and attribute changes are outside collection scope.
-NOTIFY_FILTER = 0x1 | 0x2
+# FILE_NOTIFY_CHANGE_FILE_NAME: creation, deletion and rename of files.
+NOTIFY_FILTER = 0x1
 
 
 def fixed_drives():
@@ -39,7 +40,8 @@ def decode_extended(data):
         advance,action=struct.unpack_from('<II',data,offset);length=struct.unpack_from('<I',data,offset+80)[0]
         if length%2 or offset+84+length>len(data):raise ValueError('Invalid extended directory notification')
         file_id=struct.unpack_from('<Q',data,offset+64)[0];attrs=struct.unpack_from('<I',data,offset+56)[0]
-        items.append((action,data[offset+84:offset+84+length].decode('utf-16-le'),file_id,attrs))
+        size=struct.unpack_from('<q',data,offset+48)[0]
+        items.append((action,data[offset+84:offset+84+length].decode('utf-16-le'),file_id,attrs,size))
         if not advance:break
         if advance<84 or offset+advance>len(data):raise ValueError('Invalid extended notification offset')
         offset+=advance
@@ -71,15 +73,25 @@ class RenamePairs:
         now=time.monotonic() if now is None else now;result=[]
         for item in items:
             action,path=item[:2];attributes=item[2] if len(item)>2 else None
+            identity=item[3:] if len(item)==5 else ()
+            directory=attributes is not None and bool(attributes&0x10)
             if self.pending:
-                old,stamp,old_attributes=self.pending;self.pending=None
+                old,stamp,old_attributes,old_identity=self.pending;self.pending=None
+                old_directory=old_attributes is not None and bool(old_attributes&0x10)
                 if action==5 and now-stamp<=2:
+                    if directory or old_directory:continue
                     kind='file.renamed' if ntpath.normcase(ntpath.dirname(old))==ntpath.normcase(ntpath.dirname(path)) else 'file.moved'
-                    result.append((kind,{'path':old,'source_path':old,'destination_path':path,'correlation':'adjacent_native_rename_pair',**({'_path_attributes':{old:old_attributes,path:attributes}} if old_attributes is not None or attributes is not None else {})}));continue
-                result.append(('file.rename_from',{'path':old,'correlation':'unpaired_old_name',**({'_path_attributes':{old:old_attributes}} if old_attributes is not None else {})}))
-            if action==4:self.pending=(path,now,attributes);continue
+                    details={'path':old,'source_path':old,'destination_path':path,'correlation':'adjacent_native_rename_pair'}
+                    if old_attributes is not None or attributes is not None:
+                        details['_path_attributes']={old:old_attributes,path:attributes}
+                    if identity and old_identity and identity[0]==old_identity[0]:
+                        details['_save_object']=identity
+                    result.append((kind,details));continue
+                if not old_directory:result.append(('file.rename_from',{'path':old,'correlation':'unpaired_old_name',**({'_path_attributes':{old:old_attributes}} if old_attributes is not None else {})}))
+            if action==4:self.pending=(path,now,attributes,identity);continue
+            if directory:continue
             kind={1:'file.created',2:'file.deleted',5:'file.rename_to'}.get(action)
-            if kind:result.append((kind,{'path':path,**({'correlation':'unpaired_new_name'} if action==5 else {}),**({'_path_attributes':{path:attributes}} if attributes is not None else {})}))
+            if kind:result.append((kind,{'path':path,**({'correlation':'unpaired_new_name'} if action==5 else {}),**({'_path_attributes':{path:attributes}} if attributes is not None else {}),**({'_save_object':identity} if identity else {})}))
         return result
 
 
@@ -135,27 +147,30 @@ class DirectoryMonitor:
                 # outbox write transaction; slow filesystem metadata must not
                 # hold SQLite's writer while heartbeat/other collectors wait.
                 entries=[];ready=[]
-                raw=decode_extended(buffer.raw[:count.value]) if extended else [(action,name,0,0) for action,name in decode_notifications(buffer.raw[:count.value])]
+                raw=decode_extended(buffer.raw[:count.value]) if extended else [(action,name,0,0,None) for action,name in decode_notifications(buffer.raw[:count.value])]
                 extended_items=[]
-                for action,name,file_id,attrs in raw:
+                for action,name,file_id,attrs,size in raw:
                     path=str(Path(root)/name)
                     extended_items.append((action,path,file_id,attrs))
-                    # Keep event-time extended attributes separate from a
-                    # current lookup: names can be deleted/reused in one batch.
-                    if action==3:
-                        attributes=attrs if extended else self.api.GetFileAttributesW(path)
-                        if attributes!=0xffffffff and attributes&0x10:continue
-                    if action==1:
+                    # Extended attributes describe the object at notification time.
+                    if action==1 and not extended:
                         current_attributes=self.api.GetFileAttributesW(path)
                         if current_attributes!=0xffffffff and current_attributes&0x10:continue
-                    entries.append((action,path,attrs) if extended and '@guarddesk:hidden-files:v1' in self.policy['file_audit']['exclude_paths'] else (action,path))
+                    entries.append((action,path,attrs,file_id,size) if extended else (action,path))
                 for kind,details in pairs.consume(entries)+file_ids.consume(extended_items):
                     observed=details.pop('_path_attributes',{})
                     if '@guarddesk:hidden-files:v1' in self.policy['file_audit']['exclude_paths']:
                         from .hidden_files import remember
                         for observed_path,observed_attributes in observed.items():remember(observed_path,observed_attributes)
                     relevant=[details.get('source_path',details['path']),details.get('destination_path',details['path'])]
-                    if all(excluded(p,self.policy['file_audit']['exclude_paths'],self.agent.audit_runtime) for p in relevant):continue
+                    hidden_source = excluded(relevant[0],self.policy['file_audit']['exclude_paths'],self.agent.audit_runtime)
+                    hidden_target = hidden_source if relevant[0]==relevant[1] else excluded(relevant[1],self.policy['file_audit']['exclude_paths'],self.agent.audit_runtime)
+                    if hidden_source and hidden_target:continue
+                    if kind=='file.renamed':
+                        if TMP_FILE_RULE in self.policy['file_audit']['exclude_paths'] and tmp_file(relevant[0]) != tmp_file(relevant[1]):
+                            details['tmp_exclusion_boundary']=True
+                        elif hidden_target:
+                            details.pop('_save_object',None)
                     ready.append((kind,details))
                 if ready:
                     with self.agent.db() as db:

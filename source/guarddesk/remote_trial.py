@@ -228,6 +228,8 @@ def worker(config, stop, *, once=False, restore=False):
                 save(agent.config_path.parent/'native-health.json',health)
                 stop.wait(5)
             if isinstance(getattr(supervisor,'fatal_error',None),dict):
+                if supervisor.fatal_error.get('operation')=='persist_security_hold':
+                    raise SystemExit(1260)
                 raise RuntimeError('Machine session supervisor failed; preserve startup diagnostic')
         except Exception as exc:
             failed=True

@@ -17,24 +17,26 @@ class Snapshot:
         with agent.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS scan_seen(path TEXT PRIMARY KEY)')
             db.execute('DELETE FROM scan_seen')
+            self.rebaseline=bool(db.execute("SELECT 1 FROM state WHERE key='snapshot_rebaseline'").fetchone())
 
     def error(self,error):
         self.error_count+=1
         if len(self.errors)<5:self.errors.append(str(error)[:200])
 
     def walk(self,root,depth=0):
-        if excluded(str(root),self.exclude_paths):return
+        if excluded(str(root),self.exclude_paths,directory=True):return
         if depth>64:
             self.error('目錄超過 64 層，保留既有紀錄');return
         try:
             with os.scandir(root) as entries:
                 for entry in entries:
                     try:
-                        if excluded(entry.path,self.exclude_paths):
+                        directory=entry.is_dir(follow_symlinks=False)
+                        if excluded(entry.path,self.exclude_paths,directory=directory):
                             yield None;continue
                         if entry.is_symlink() or entry.is_junction():
                             yield None;continue
-                        if entry.is_dir(follow_symlinks=False):
+                        if directory:
                             yield None
                             yield from self.walk(Path(entry.path),depth+1)
                         elif entry.is_file(follow_symlinks=False):yield entry
@@ -54,7 +56,7 @@ class Snapshot:
             # Keep the original discovery hash as historical metadata, not as
             # a claim about the current content; do not periodically rehash.
             sha=before.get('sha256')
-            if not old and stat.st_size<=MAX_FILE:
+            if not self.rebaseline and not old and stat.st_size<=MAX_FILE:
                 digest=hashlib.sha256();read=0
                 # Bound peak allocation even when a file grows while being hashed.
                 with path.open('rb') as stream:
@@ -67,7 +69,7 @@ class Snapshot:
                     self.error('檔案掃描期間變動，留待下輪：'+relative);return
                 if read<=MAX_FILE:sha=digest.hexdigest()
             signature=canonical({**metadata,'sha256':sha,'verified_at':time.time()})
-            if not old:self.agent.queue('file.created',{'path':str(path.absolute()),'relative_path':relative,**metadata,'sha256':sha,'source':'fallback_snapshot'},db=db)
+            if not old and not self.rebaseline:self.agent.queue('file.created',{'path':str(path.absolute()),'relative_path':relative,**metadata,'sha256':sha,'source':'fallback_snapshot'},db=db)
             db.execute('INSERT OR REPLACE INTO files VALUES (?,?)',(relative,signature))
         db.execute('INSERT OR IGNORE INTO scan_seen VALUES (?)',(relative,));self.files+=1
 
@@ -91,10 +93,12 @@ class Snapshot:
                     if not rows:complete=True;break
                     for (path,) in rows:
                         full_path=str((self.agent.root/path).absolute())
-                        if not excluded(full_path,self.exclude_paths):
+                        if not self.rebaseline and not excluded(full_path,self.exclude_paths):
                             self.agent.queue('file.deleted',{'path':full_path,'relative_path':path,'source':'fallback_snapshot'},'warning',db=db)
                         db.execute('DELETE FROM files WHERE path=?',(path,));processed+=1
                     break
+            if complete and self.rebaseline and not self.error_count:
+                db.execute("DELETE FROM state WHERE key='snapshot_rebaseline'")
             if complete and self.error_count:self.agent.queue('agent.scan_partial',{'errors':self.errors,'error_count':self.error_count},'warning',db=db)
         return {'files':self.files,'partial':bool(self.error_count),'in_progress':not complete,'entries_this_slice':processed,'slice_ms':round((time.monotonic()-started)*1000,2)}
 

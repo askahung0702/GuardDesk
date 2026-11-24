@@ -49,7 +49,12 @@ function Restore-ProcessAudit {
         Remove-Item -LiteralPath $auditBackup -Force
     }
 }
-if($Action -eq 'Restore'){Restore-AppLocker;Restore-ProcessAudit;@{status='restored'}|ConvertTo-Json -Compress;exit}
+if($Action -eq 'Restore'){
+    Restore-AppLocker
+    if(-not $payload.PSObject.Properties['manage_audit'] -or $payload.manage_audit){Restore-ProcessAudit}
+    @{status='restored'}|ConvertTo-Json -Compress
+    exit
+}
 if(-not $payload.PSObject.Properties['manage_audit'] -or $payload.manage_audit){
 if($payload.audit){
     $current=Audit-Flags

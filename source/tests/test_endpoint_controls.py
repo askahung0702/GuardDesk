@@ -48,13 +48,14 @@ class EndpointTest(unittest.TestCase):
         with self.agent.db() as db:db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)",(canonical({'version':2,'body':self.policy}),))
 
     def test_browser_offline_native_framing_and_stable_identity(self):
-        message={'type':'navigation','event_id':'browser-test-1','url':'https://name:password@example.com/upload?q=123#fragment','browser':'edge','tab_id':2,'timestamp':(time.time()-60)*1000,'request_id':'one'}
+        message={'type':'web_upload','phase':'started','upload_id':'owned-offline-flow','method':'POST','files':[{'path':r'C:\Owned\report.pdf'}],'event_id':'browser-test-1','url':'https://name:password@example.com/upload?q=123#fragment','browser':'edge','tab_id':2,'timestamp':(time.time()-60)*1000,'request_id':'one'}
         source=io.BytesIO();native_write(source,message);source.seek(0)
         reply=io.BytesIO();run_host(self.config,source,reply);reply.seek(0)
         result=native_read(reply)
         self.assertTrue(result['recorded']);self.assertEqual(result['request_id'],'one')
         handle_message(self.agent,message) # Lost ack retry must not duplicate outbox.
         rows=self.queued();self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['kind'],'web.upload_started')
         self.assertEqual(rows[0]['details']['url'],'https://example.com/upload?q=123')
         self.assertIn('user',rows[0]['details']);self.assertLess(rows[0]['occurred'],time.time()-50)
         self.assertEqual(Agent(self.config).queue_status()['pending'],1)
@@ -135,7 +136,14 @@ class EndpointTest(unittest.TestCase):
         try:
             self.assertEqual(monitor.start()['active'],1)
             time.sleep(.15)
-            path=self.watch/'native.txt';path.write_text('first');time.sleep(.15)
+            folder=self.watch/'folder.note'
+            folder.mkdir()
+            time.sleep(.15)
+            renamed=self.watch/'renamed'
+            folder.rename(renamed)
+            time.sleep(.15)
+            renamed.rmdir()
+            path=self.watch/'native';path.write_text('first');time.sleep(.15)
             path.write_text('second');time.sleep(.15);path.unlink()
             deadline=time.monotonic()+4
             while time.monotonic()<deadline:
@@ -144,6 +152,7 @@ class EndpointTest(unittest.TestCase):
                 time.sleep(.05)
             self.assertTrue({'file.created','file.deleted'}<=kinds,kinds)
             self.assertNotIn('file.modified',kinds)
+            self.assertTrue(all(Path(row['details']['path'])==path for row in self.queued() if row['kind'].startswith('file.')))
         finally:monitor.close()
 
     def test_http_proxy_really_throttles_upload_and_records_bytes(self):

@@ -2,8 +2,10 @@
 from pathlib import Path
 import copy
 import re
+from . import audit_collection
 
 DEFAULT_POLICY = {
+    **audit_collection.FIELDS,
     "mode": "monitor", "allow_export": True,
     "blocked_extensions": [".pem", ".key"],
     "keywords": ["機密", "CONFIDENTIAL"], "max_export_mb": 10,
@@ -47,6 +49,7 @@ def validate_policy(value):
     rules = value['upload_rules']
     if type(value['application_audit']) is not bool:raise ValueError('應用程式稽核設定不正確')
     from .application_exclusions import validate_exclusions
+    audit_collection.validate(value)
     validate_exclusions(value['application_audit_exclusions'])
     from .category_rules import website,publishers
     website(value['website_control']);publishers(value['application_publishers'])
@@ -104,6 +107,14 @@ def validate_app_control(control,allow_empty=False):
     return control
 
 
+def validate_policy_edit(value, current):
+    # A still-open older console can submit a complete legacy schema.
+    # Keep independently configured options when its form lacks those inputs.
+    if isinstance(value, dict):
+        value = {**{key: current[key] for key in audit_collection.FIELDS}, **value}
+    return validate_policy(value)
+
+
 def normalize_policy(value):
     """Read legacy 0.1 policies without silently accepting unknown fields."""
     result=copy.deepcopy(DEFAULT_POLICY)
@@ -111,15 +122,40 @@ def normalize_policy(value):
     return validate_policy(result)
 
 
+def heartbeat_policy(revision):
+    from .serialization import digest
+    body = copy.deepcopy(DEFAULT_POLICY)
+    body.update(browser_audit=False, browser_upload_mode='disabled', application_audit=False,
+                blocked_extensions=[], keywords=[])
+    body['file_audit']['enabled'] = False
+    return agent_policy_wire({'version': 0, 'body': body, 'heartbeat_only': revision,
+                              'fingerprint': digest('heartbeat-only/' + str(revision))})
+
+
 def agent_policy_wire(packet):
     """Keep the pre-0.4.27 body schema for installed strict legacy Agents."""
     packet=copy.deepcopy(packet)
     body=normalize_policy(packet['body'])
+    options = {key: body.pop(key) for key in audit_collection.FIELDS}
+    options['browser_audit'] = body['browser_audit']
+    packet['collection_options'] = {'format': 1, **options}
+    # Legacy clients have one switch. In split mode enable neither collector
+    # until the endpoint understands the independent permissions.
+    body['browser_audit'] = body['browser_audit'] and audit_collection.uploads_enabled(options)
     packet['target_controls']={'format':1,'website_control':body.pop('website_control'),'application_publishers':body.pop('application_publishers'),'application_control':copy.deepcopy(body['application_control'])}
     if packet['target_controls']['application_publishers'] and not body['application_control']['rules'] and not body['application_control']['block_msi']:
         # A strict legacy Agent rejects an enabled empty denylist. The actual
         # publisher-only policy is restored only by a supporting decoder.
         body['application_control']=copy.deepcopy(DEFAULT_POLICY['application_control'])
+    # Strip prefix rules first; restore after file-access positions on decode.
+    # Legacy Agents keep accepting policies, without gaining unsupported globs.
+    from .file_exclusions import FILENAME_PREFIX_NAMESPACE
+    full_paths=body['file_audit']['exclude_paths']
+    prefix_positions=[i for i,r in enumerate(full_paths) if r.startswith(FILENAME_PREFIX_NAMESPACE)]
+    prefix_rules=[full_paths[i] for i in prefix_positions]
+    body['file_audit']['exclude_paths']=[r for r in full_paths if not r.startswith(FILENAME_PREFIX_NAMESPACE)]
+    packet.pop('filename_prefix_options',None)
+    if prefix_rules:packet['filename_prefix_options']={'format':1,'rules':prefix_rules,'positions':prefix_positions}
     # 0.4.53 rejects unknown file-access reserved rules. Keep its strict body
     # valid and carry new options in an ignored, versioned packet projection.
     from .file_access import ALL_ACCESSES,INTERVAL
@@ -130,11 +166,18 @@ def agent_policy_wire(packet):
     packet.pop('file_access_options',None)
     if extra:packet['file_access_options']={'format':1,'rules':extra,'positions':positions}
     rules=body.pop('application_audit_exclusions')
-    packet.update(body=body,audit_options={'application_exclusions':rules})
+    from .application_exclusions import directory_rule
+    positions=[i for i,r in enumerate(rules) if directory_rule(r)]
+    packet.pop('application_directory_options',None)
+    if positions:packet['application_directory_options']={'format':1,'rules':[rules[i] for i in positions],'positions':positions}
+    # Old Agents retain their strict exact-file list. The Server filters their
+    # queued ordinary events until native source support updates.
+    packet.update(body=body,audit_options={'application_exclusions':[r for r in rules if not directory_rule(r)]})
     if 'user_policies' in packet:
         packet['user_policies']={k:agent_policy_wire(v) for k,v in packet['user_policies'].items()}
         # New machine-only lists travel once, not once per reported account.
         for child in packet['user_policies'].values():
+            child['collection_options']['application_stop_programs'] = []
             child['target_controls']={'format':1,'website_control':copy.deepcopy(DEFAULT_POLICY['website_control']),'application_publishers':[],'application_control':copy.deepcopy(DEFAULT_POLICY['application_control'])}
     return packet
 
@@ -142,6 +185,13 @@ def agent_policy_wire(packet):
 def decode_agent_policy(packet):
     """Decode in memory only; retain the legacy-compatible wire packet on disk."""
     packet=copy.deepcopy(packet);body=normalize_policy(packet['body'])
+    if 'collection_options' in packet:
+        options = packet['collection_options']
+        if (not isinstance(options, dict) or set(options) != {'format', 'browser_audit', *audit_collection.FIELDS}
+                or type(options['format']) is not int or options['format'] != 1):
+            raise ValueError('稽核收集策略格式不正確')
+        body.update({key: options[key] for key in ('browser_audit', *audit_collection.FIELDS)})
+        validate_policy(body)
     if 'target_controls' in packet:
         extra=packet['target_controls']
         if not isinstance(extra,dict) or set(extra)!={'format','website_control','application_publishers','application_control'} or type(extra['format']) is not int or extra['format']!=1:raise ValueError('網站與應用分類協定不正確')
@@ -157,16 +207,36 @@ def decode_agent_policy(packet):
             if i>len(body['file_audit']['exclude_paths']):raise ValueError('文件互動選項位置超出範圍')
             body['file_audit']['exclude_paths'].insert(i,rule)
         validate_policy(body)
+    if 'filename_prefix_options' in packet:
+        extra=packet['filename_prefix_options']
+        from .file_exclusions import filename_prefix_template
+        if not isinstance(extra,dict) or set(extra)!={'format','rules','positions'} or type(extra['format']) is not int or extra['format']!=1 or not isinstance(extra['rules'],list) or not 1<=len(extra['rules'])<=100 or any(not isinstance(r,str) or filename_prefix_template(r) is None for r in extra['rules']):raise ValueError('檔名前綴選項格式不正確')
+        positions=extra['positions']
+        if not isinstance(positions,list) or len(positions)!=len(extra['rules']) or any(type(i) is not int or not 0<=i<100 for i in positions) or positions!=sorted(set(positions)):raise ValueError('檔名前綴選項位置不正確')
+        for i,rule in zip(positions,extra['rules']):
+            if i>len(body['file_audit']['exclude_paths']):raise ValueError('檔名前綴選項位置超出範圍')
+            body['file_audit']['exclude_paths'].insert(i,rule)
+        validate_policy(body)
     if 'audit_options' in packet:
         options=packet['audit_options']
         if not isinstance(options,dict) or set(options)!={'application_exclusions'}:raise ValueError('應用程式稽核選項不正確')
         body['application_audit_exclusions']=options['application_exclusions']
         validate_policy(body)
+    if 'application_directory_options' in packet:
+        extra=packet['application_directory_options']
+        from .application_exclusions import directory_rule
+        if not isinstance(extra,dict) or set(extra)!={'format','rules','positions'} or type(extra['format']) is not int or extra['format']!=1 or not isinstance(extra['rules'],list) or not 1<=len(extra['rules'])<=100 or any(directory_rule(r) is None for r in extra['rules']):raise ValueError('程式目錄排除選項格式不正確')
+        positions=extra['positions']
+        if not isinstance(positions,list) or len(positions)!=len(extra['rules']) or any(type(i) is not int or not 0<=i<100 for i in positions) or positions!=sorted(set(positions)):raise ValueError('程式目錄排除選項位置不正確')
+        for i,rule in zip(positions,extra['rules']):
+            if i>len(body['application_audit_exclusions']):raise ValueError('程式目錄排除選項位置超出範圍')
+            body['application_audit_exclusions'].insert(i,rule)
+        validate_policy(body)
     packet['body']=body
     if 'user_policies' in packet:
         packet['user_policies']={k:decode_agent_policy(v) for k,v in packet['user_policies'].items()}
         for child in packet['user_policies'].values():
-            for key in ('website_control','application_publishers','application_control'):
+            for key in ('website_control','application_publishers','application_control','application_stop_mode','application_stop_programs'):
                 child['body'][key]=copy.deepcopy(body[key])
             validate_policy(child['body'])
     return packet

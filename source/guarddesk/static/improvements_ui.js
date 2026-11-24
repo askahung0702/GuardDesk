@@ -2,7 +2,7 @@
 let policyPublishDraft=null,policyPreviewOffset=0,templateDraft=null,fleetPage=0;
 let baselinePublishDraft=null,historyData=null,historySetId=null,previewAccount=null;
 const developmentRule='@guarddesk:development-cache:v1';
-const settingFields={mode:'mode',allow_export:'allow_export',extensions:'blocked_extensions',keywords:'keywords',max_export_mb:'max_export_mb',usb_mode:'usb_mode',file_audit_enabled:'file_audit.enabled',file_audit_scope:'file_audit.scope',file_excludes:'file_audit.exclude_paths',browser_audit:'browser_audit',application_audit:'application_audit',application_audit_exclusions:'application_audit_exclusions',app_control_enabled:'application_control.enabled',app_control_mode:'application_control.mode',app_block_msi:'application_control.block_msi'};
+const settingFields={mode:'mode',allow_export:'allow_export',extensions:'blocked_extensions',keywords:'keywords',max_export_mb:'max_export_mb',usb_mode:'usb_mode',file_audit_enabled:'file_audit.enabled',file_audit_scope:'file_audit.scope',file_excludes:'file_audit.exclude_paths',browser_audit:'browser_audit',browser_visit_detail:'browser_visit_detail',browser_upload_mode:'browser_upload_mode',application_stop_mode:'application_stop_mode',application_stop_programs:'application_stop_programs',application_audit:'application_audit',application_audit_exclusions:'application_audit_exclusions',app_control_enabled:'application_control.enabled',app_control_mode:'application_control.mode',app_block_msi:'application_control.block_msi'};
 const settingLabels={'file_audit.enabled':'檔案稽核啟用','file_audit.scope':'檔案稽核範圍','file_audit.exclude_paths':'檔案排除清單','application_control.enabled':'應用程式管制啟用','application_control.mode':'黑／白名單','application_control.block_msi':'MSI 安裝限制','application_control.rules':'應用程式規則'};
 const appendSettings=new Set(['file_audit.exclude_paths','application_audit_exclusions']);
 function selectedEditorSet(){return state.policy_sets.find(p=>p.id===editingSet)||(editingSet==='new'?templateDraft:null);}
@@ -15,12 +15,13 @@ function installSettingModes(form){
     const control=form.querySelector(`[name="${name}"]`);if(!control)continue;
     const box=control.closest('[data-module-panel]');if(!box)continue;
     const op=existing?.operations?.find(v=>v.path===path),top=path.split('.')[0];
-    const mode=op?.op||(existing?.operations?.length&&!(top in (existing?.overrides||{}))?'inherit':'set');
+    const newField=['browser_visit_detail','browser_upload_mode','application_stop_mode','application_stop_programs'].includes(top);
+    const mode=op?.op||((existing?.operations?.length||(existing?.id&&newField))&&!(top in (existing?.overrides||{}))?'inherit':'set');
     const label=document.createElement('label');label.className='setting-mode';
     label.innerHTML=`<span>${esc(settingLabels[path]||fieldNames[top]||path)}的設定來源</span><select data-setting-path="${path}" data-setting-name="${name}" aria-label="${esc(settingLabels[path]||fieldNames[top]||path)}設定來源"><option value="inherit">沿用上層</option><option value="set">本策略設定${appendSettings.has(path)?'（取代清單）':''}</option>${appendSettings.has(path)?'<option value="append">追加到上層清單</option>':''}</select>`;
     control.closest('label').before(label);label.querySelector('select').value=mode;
     if(op?.op==='append'){
-      if(name==='file_excludes'){control.value=op.value.filter(v=>v!==developmentRule).join('\n');form.querySelector('[name=exclude_development]').checked=op.value.includes(developmentRule);}
+      if(name==='file_excludes'){control.value=op.value.filter(v=>v!==developmentRule&&v!=='@guarddesk:hidden-files:v1'&&!v.startsWith('@guarddesk:file-access:')).map(fileExclusionText).join('\n');form.querySelector('[name=exclude_development]').checked=op.value.includes(developmentRule);}
       else control.value=op.value.join('\n');
     }
   }
@@ -35,7 +36,7 @@ function installSettingModes(form){
 function updateSettingModes(form){
   for(const selector of form.querySelectorAll('[data-setting-path]')){
     const inherited=selector.value==='inherit';
-    if(selector.dataset.settingName){const c=form.querySelector(`[name="${selector.dataset.settingName}"]`);c.disabled=inherited;if(selector.dataset.settingPath==='application_audit_exclusions')form.querySelector('[data-app-exclusion-preset]').disabled=inherited;if(selector.dataset.settingPath==='file_audit.exclude_paths')for(const name of ['exclude_development','exclude_hidden'])form.querySelector('[name='+name+']').disabled=inherited;}
+    if(selector.dataset.settingName){const c=form.querySelector(`[name="${selector.dataset.settingName}"]`);c.disabled=inherited;if(selector.dataset.settingPath==='application_audit_exclusions')form.querySelector('[data-app-exclusion-preset]').disabled=inherited;if(selector.dataset.settingPath==='file_audit.exclude_paths')form.querySelector('[data-claude-temp-preset]').disabled=inherited;if(selector.dataset.settingPath==='file_audit.exclude_paths')for(const name of ['exclude_development','exclude_hidden'])form.querySelector('[name='+name+']').disabled=inherited;}
     else for(const c of form.querySelector('#'+selector.dataset.settingTable).querySelectorAll('input,select,button'))c.disabled=inherited;
   }
 }
@@ -69,7 +70,7 @@ const originalBindManagement=bindManagement;
 bindManagement=function(){originalBindManagement();const form=$('#set-form');if(form){installSettingModes(form);form.querySelector('.module-inheritance-help').insertAdjacentHTML('beforeend','<br>沿用欄位的灰色值僅為編輯參考；不同群組的實際繼承值，請以發布前的逐端點預覽確認。');}};
 moduleGuides.appcontrol.short='依黑／白名單限制應用程式執行及 MSI 安裝。';
 const originalDetailBasic=detailBasic;
-detailBasic=function(){const d=detailData.device,rows=d.policy_progress||[];return `<h3 class="subheading">策略發布、接收與元件回報</h3><p class="help">端點回報設定完成，仍需實測確認控制效果。下列狀態不會把「已接收」當成 USB／程式已實際阻擋。</p><div class="table-wrap"><table><thead><tr><th>功能</th><th>有效設定</th><th>來源</th><th>接收</th><th>元件回報／待處理原因</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(previewValue(r.key,r.desired))}</td><td>${esc(r.source)}<small>v${r.published_version}</small></td><td>${r.received?'已接收':'待接收'}</td><td><span class="badge ${r.state==='failed'?'danger':r.state==='pending'||r.state==='offline'?'warning':''}">${esc({pending:'待確認',failed:'失敗',reported:'元件回報',replug:'設定讀回／待重插',offline:'離線',disabled:'已停收'}[r.state]||r.state)}</span><small>${esc(r.reason)}</small></td></tr>`).join('')}</tbody></table></div>`+originalDetailBasic();};
+detailBasic=function(){const d=detailData.device,rows=d.policy_progress||[];if(d.heartbeat_only)return originalDetailBasic();return `<h3 class="subheading">策略發布、接收與元件回報</h3><p class="help">端點回報設定完成，仍需實測確認控制效果。下列狀態不會把「已接收」當成 USB／程式已實際阻擋。</p><div class="table-wrap"><table><thead><tr><th>功能</th><th>有效設定</th><th>來源</th><th>接收</th><th>元件回報／待處理原因</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(previewValue(r.key,r.desired))}</td><td>${esc(r.source)}<small>v${r.published_version}</small></td><td>${r.received?'已接收':'待接收'}</td><td><span class="badge ${r.state==='failed'?'danger':r.state==='pending'||r.state==='offline'?'warning':''}">${esc({pending:'待確認',failed:'失敗',reported:'元件回報',replug:'設定讀回／待重插',offline:'離線',disabled:'已停收'}[r.state]||r.state)}</span><small>${esc(r.reason)}</small></td></tr>`).join('')}</tbody></table></div>`+originalDetailBasic();};
 const originalEffectiveView=effectiveView;
 effectiveView=function(p){return originalEffectiveView(p)+`<details><summary>逐欄繼承與追加來源</summary><div class="table-wrap"><table><thead><tr><th>欄位</th><th>有效值</th><th>來源</th><th>方式</th></tr></thead><tbody>${Object.entries(p.setting_sources||{}).map(([path,s])=>`<tr><td>${esc(settingLabels[path]||fieldNames[path]||path)}</td><td class="full-path">${esc(previewValue(path,editorValue(p.body,path)))}</td><td>${esc(s.name)} · v${s.revision}</td><td>${s.operation==='append'?'追加排除':s.kind==='baseline'?'全域預設':'明確設定'}</td></tr>`).join('')}</tbody></table></div></details>`;};
 document.addEventListener('click',async event=>{
@@ -125,7 +126,7 @@ const contextRender=render;
 render=function(){contextRender();if(user.role==='support')return;
   const device=state.devices.find(d=>d.id===contextDevice&&!d.revoked),group=state.groups.find(g=>g.id===fleetGroup);
   if(device||group){const banner=document.createElement('div');banner.className='notice context-banner';banner.innerHTML=`<strong>目前對象：${esc(device?device.name:group.path.join(' / '))}</strong><span>僅帶入查詢／指派對象；全域預設仍適用全所。</span><div class="actions"><button class="secondary" data-context-go="audit">查日誌</button><button class="secondary" data-context-go="policy">指派策略</button>${user.role==='admin'?'<button class="secondary" data-context-go="updates">更新 Agent</button>':''}<button class="text-button" data-context-clear>清除對象</button></div>`;$('#workspace').prepend(banner);}
-  if(page==='updates'){const select=$('#update-job [name=target]');if(select&&!updatesDirty){const target=device?'device:'+device.id:group?'group:'+group.id:'';if(target)select.value=target;}}
+  if(page==='updates'){const form=$('#update-job');if(form&&!updatesDirty){const target=device?'device:'+device.id:group?'group:'+group.id:'';if(target)setUpdateTarget(form,target);}}
   installColumnPreferences();
 };
 document.addEventListener('click',async e=>{try{if(e.target.closest('[data-context-clear]')){contextDevice='';fleetGroup='all';auditDevice='';offset=0;await refresh();}const button=e.target.closest('[data-context-go]');if(button){page=button.dataset.contextGo;offset=0;if(page==='audit')auditDevice=contextDevice;if(page==='policy'){policyTab='assignments';assignmentDraft={target_type:contextDevice?'device':'group',target_id:contextDevice||fleetGroup};}await refresh();}const group=e.target.closest('[data-action=fleet-group]');if(group){contextDevice='';fleetPage=0;render();reloadFleetRows();}}catch(error){toast(error.message);}});

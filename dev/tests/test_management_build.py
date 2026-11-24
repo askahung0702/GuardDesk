@@ -2,8 +2,8 @@ from pathlib import Path
 import copy,hashlib,json,os,subprocess,sys,tempfile,unittest,zipfile
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from build_management import output_path,build_lock,one_new,Pipeline,passing
-from management_package import publish,verify_zip,clean_scan
+from build_management import output_path,build_lock,one_new,Pipeline,passing,legacy_recovery_input
+from management_package import publish,verify_zip,clean_scan,package
 from native_inputs import prepare
 from worktree import digest,webrtc_source
 
@@ -46,6 +46,50 @@ class ManagementBuildTest(unittest.TestCase):
     def test_contradictory_baseline_stops(self):
         (self.root/'DEVELOPMENT-BASELINE.json').write_text('{"accepted_version":"0.4.104","accepted_revision":"001"}')
         with self.assertRaises(ValueError):output_path(self.root,'0.4.106','001')
+    def test_legacy_recovery_uses_sealed_111_after_114_promotion(self):
+        for file,body in [('CURRENT-BASELINE.json',{'version':'0.4.114','revision':'001'}),
+                          ('DEVELOPMENT-BASELINE.json',{'accepted_version':'0.4.114','accepted_revision':'001'})]:
+            (self.root/file).write_text(json.dumps(body))
+        store=self.root/'artifacts';store.mkdir();old=store/'old.zip';old.write_bytes(b'owned 111')
+        pin=digest(old)
+        folder=self.root/'provenance';folder.mkdir()
+        (folder/'release-baseline-0.4.111-20261116.json').write_text(json.dumps({
+            'version':'0.4.111','revision':'001','artifact':{'path':'old.zip','sha256':pin}}))
+        self.assertEqual(output_path(self.root,'0.4.115','001')[1]['version'],'0.4.114')
+        self.assertEqual(legacy_recovery_input(self.root,store),(old,pin))
+        old.write_bytes(b'wrong version')
+        with self.assertRaisesRegex(ValueError,'fixture differs'):legacy_recovery_input(self.root,store)
+    def package_fixture(self):
+        (self.root/'CURRENT-BASELINE.json').write_text('{"version":"0.4.108","revision":"001"}')
+        (self.root/'DEVELOPMENT-BASELINE.json').write_text('{"accepted_version":"0.4.108","accepted_revision":"001"}')
+        dependencies=self.root/'dependencies';dependencies.mkdir()
+        compiler=self.root/'owned-compiler.exe';compiler.write_bytes(b'Never executed')
+        (dependencies/'management-package.lock.json').write_text(json.dumps({'compiler':str(compiler),'compiler_sha256':digest(compiler)}))
+        build=self.root/'runtime/owned-build';product=build/'product/GuardDesk';product.mkdir(parents=True)
+        data=product/'owned.txt';data.write_bytes(b'OWNED')
+        receipt=build/'receipt.json';receipt.write_text(json.dumps({'passed':True,'source_stable':True,'version':'0.4.111','cohort':'owned','files':{'owned.txt':{'sha256':digest(data)}}}))
+        run=self.root/'runtime/owned-package';run.mkdir()
+        stage=Path(__file__).resolve().parents[2]/'source'
+        return run,receipt,stage
+    def test_actual_package_metadata_and_readme_follow_current_baseline(self):
+        run,receipt,stage=self.package_fixture()
+        def compile_owned(args,**kwargs):
+            Path(next(arg[5:] for arg in args if str(arg).startswith('/out:'))).write_bytes(b'OWNED_HELPER')
+            return subprocess.CompletedProcess(args,0)
+        with patch('management_package.subprocess.run',side_effect=compile_owned) as compiler:
+            candidate,proof=package(self.root,stage,run,receipt,'0.4.111','001',os.environ.copy())
+        self.assertEqual(compiler.call_count,1);self.assertTrue(proof['passed'])
+        with zipfile.ZipFile(candidate) as archive:
+            self.assertEqual(json.loads(archive.read('BUILD-INFO.json'))['accepted_baseline'],'0.4.108/001')
+            readme=archive.read('README-Management.txt').decode('utf-8-sig')
+            self.assertIn('0.4.108/001',readme);self.assertNotIn('0.4.105/001',readme)
+    def test_packaging_rechecks_baseline_contract_before_compiler(self):
+        run,receipt,stage=self.package_fixture()
+        (self.root/'CURRENT-BASELINE.json').write_text('{"version":"0.4.109","revision":"001"}')
+        with patch('management_package.subprocess.run') as compiler:
+            with self.assertRaisesRegex(ValueError,'baseline contract differs'):
+                package(self.root,stage,run,receipt,'0.4.111','001',os.environ.copy())
+        compiler.assert_not_called();self.assertFalse(list(run.glob('*.zip')))
     def test_lock_is_exclusive_and_released_after_error(self):
         with self.assertRaisesRegex(RuntimeError,'OWNED'):
             with build_lock(self.root):

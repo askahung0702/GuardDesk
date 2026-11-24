@@ -23,7 +23,16 @@ def main():
     result=subprocess.run(args,env=env,cwd=work,capture_output=True)
     (work/'build.log').write_bytes(result.stdout+result.stderr)
     if result.returncode:raise SystemExit((result.stdout+result.stderr).decode(errors='replace'))
+    owned=ROOT/'native/document_trace_owned_test.cpp';test=work/'document-trace-owned-test.exe'
+    test_args=[str(compiler),'/nologo','/std:c++17','/EHsc','/MT','/O2','/W4','/sdl','/guard:cf','/DUNICODE','/D_UNICODE','/D_WIN32_WINNT=0x0602',str(owned),'/Fo'+str(work/'document_trace_owned_test.obj'),'/Fe'+str(test),'/link','/DYNAMICBASE','/NXCOMPAT','/guard:cf']
+    checked=subprocess.run(test_args,env=env,cwd=work,capture_output=True)
+    (work/'owned-build.log').write_bytes(checked.stdout+checked.stderr)
+    if checked.returncode:raise SystemExit('Native document completion test build failed')
+    checked=subprocess.run([str(test)],env=env,cwd=work,capture_output=True,timeout=30)
+    (work/'owned-tests.log').write_bytes(checked.stdout+checked.stderr)
+    if checked.returncode:raise SystemExit('Native document completion tests failed')
     evidence={'msvc':'14.29.30133','sdk':version,'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'dll_sha256':hashlib.sha256(dll.read_bytes()).hexdigest(),'architecture':'x64','authenticode':'not_signed_internal_trial','driver_required':False,'compiler_sha256':hashlib.sha256(compiler.read_bytes()).hexdigest(),'build_exit_code':result.returncode}
+    evidence.update(write_activity_version=3,owned_completion_tests_passed=True,owned_test_source_sha256=hashlib.sha256(owned.read_bytes()).hexdigest(),owned_test_exe_sha256=hashlib.sha256(test.read_bytes()).hexdigest(),owned_tests_trace_started=False)
     (output/'document-trace-build.json').write_text(json.dumps(evidence,indent=2),encoding='utf-8')
     print(json.dumps(evidence))
 

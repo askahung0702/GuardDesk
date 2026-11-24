@@ -30,7 +30,7 @@ class TransactionBoundaryTest(unittest.TestCase):
             def excluded(path,*args):self.assertFalse(state['inside']);return hidden_only or path.endswith('hidden.txt')
             monitor.w=SimpleNamespace(DWORD=ctypes.c_uint32)
             monitor.api=SimpleNamespace(ReadDirectoryChangesExW=read,GetFileAttributesW=attributes)
-            entries=[(1,'hidden.txt',1,2)] if hidden_only else [(1,'visible.txt',1,32),(1,'hidden.txt',2,2)]
+            entries=[(1,'hidden.txt',1,2,0)] if hidden_only else [(1,'visible.txt',1,32,0),(1,'hidden.txt',2,2,0)]
             with patch('guarddesk.windows_watch.decode_extended',return_value=entries),patch('guarddesk.windows_watch.excluded',side_effect=excluded):monitor._watch_background('C:\\Owned',1)
             self.assertEqual(state['transactions'],0 if hidden_only else 1)
             self.assertEqual(len(state['rows']),0 if hidden_only else 1)

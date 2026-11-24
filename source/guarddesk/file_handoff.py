@@ -154,13 +154,20 @@ class HandoffQueue:
     def flush(self):
         if not self.buffer and not self.loss and (not self.unreported or time.monotonic() < self.next_check):
             return self.report
-        policy = self.agent.cached_policy()['body']
+        from .identity import current_account
+        account = current_account()
+        policy = self.agent.policy_for_user(account)['body']
         from .decommission import saved
-        enabled = policy['browser_audit'] and policy['file_audit']['enabled'] and not saved(self.agent)
+        from .audit_collection import uploads_enabled
+        enabled = uploads_enabled(policy) and policy['file_audit']['enabled'] and not saved(self.agent)
         batch = self.buffer[:MAX_BATCH]
         loss = self.loss
         from .document_scope import permits
-        eligible = [value for value in batch if enabled and permits(value[0]['source_path'], policy['file_audit'],
+        from .file_exclusions import TMP_FILE_RULE
+        audit = policy['file_audit']
+        if TMP_FILE_RULE in audit['exclude_paths']:
+            audit = {**audit,'exclude_paths':[rule for rule in audit['exclude_paths'] if rule!=TMP_FILE_RULE]}
+        eligible = [value for value in batch if enabled and permits(value[0]['source_path'], audit,
                     self.agent.config.get('audit_watch', str(self.agent.root)), self.agent.audit_runtime)]
         with self.agent.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS file_handoff_outbox(event_id TEXT PRIMARY KEY)')
@@ -181,7 +188,7 @@ class HandoffQueue:
                 if pending >= MAX_PENDING:
                     total_loss = min(2**53 - 1, total_loss + 1)
                     continue
-                queued = self.agent.queue(KIND, details, db=db, occurred=occurred, event_id=eid)
+                queued = self.agent.queue(KIND, {**details, 'reporting_account': account}, db=db, occurred=occurred, event_id=eid)
                 if queued:
                     db.execute('INSERT INTO file_handoff_outbox VALUES (?)', (queued,))
                     pending += 1

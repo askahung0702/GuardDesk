@@ -12,6 +12,9 @@ import unittest
 from PyInstaller.archive.readers import CArchiveReader
 
 
+from tools.offline_build_guard import guarded_main
+
+@guarded_main
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--product',type=Path,required=True)

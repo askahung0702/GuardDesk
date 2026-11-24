@@ -68,6 +68,9 @@ def native_action(directory,action,**values):
     return json.loads(result.stdout.decode('utf-8-sig'))
 
 
+STATUS_REPORT_SECONDS=30
+
+
 class ExtendedWorker:
     def __init__(self,agent,*,start_documents=True):
         self.agent=agent;self.directory=agent.config_path.parent/'applications';self.directory.mkdir(exist_ok=True)
@@ -96,6 +99,10 @@ class ExtendedWorker:
     def configure(self):
         packet=self.agent.call('/api/agent/extended-policy',{})
         if packet.get('device_id')!=self.agent.config['device_id']:raise ValueError('端點識別不符')
+        if packet.get('heartbeat_only'):
+            with self.agent.db() as db:self.agent.set_idle_revision(packet['heartbeat_only'],db)
+            return {'status':'heartbeat_only'}
+        self.mode_revision=packet.get('mode_revision',0)
         from .policy import decode_agent_policy,agent_policy_wire
         has_target_projection='target_controls' in packet
         if not has_target_projection:
@@ -103,18 +110,25 @@ class ExtendedWorker:
             if cached_targets:packet['target_controls']=json.loads(cached_targets[0])
         policy=decode_agent_policy(packet)['body']
         from .browser_dispatch import sync
-        self.browser_deployment_status=sync(self.agent,packet.get('browser_dispatch'),native=True,enabled=policy['browser_audit'])
-        if policy['browser_audit']:
+        from .audit_collection import uploads_enabled
+        deploy_browser = uploads_enabled(policy) or packet.get('user_upload_required') is True
+        self.browser_deployment_status=sync(self.agent,packet.get('browser_dispatch'),native=True,enabled=deploy_browser)
+        if deploy_browser:
             from .browser_trust import sync as sync_trust
             self.browser_deployment_status['tls_trust']=sync_trust(self.agent,packet.get('browser_trust'))
         wire=agent_policy_wire({'body':policy})
         with self.agent.db() as db:
             db.execute("INSERT OR REPLACE INTO state VALUES ('extended_policy',?)",(json.dumps(wire['body']),))
             db.execute("INSERT OR REPLACE INTO state VALUES ('extended_audit_options',?)",(json.dumps(wire['audit_options']),))
+            db.execute("INSERT OR REPLACE INTO state VALUES ('extended_collection_options',?)",(json.dumps(wire['collection_options']),))
+            if 'application_directory_options' in wire:db.execute("INSERT OR REPLACE INTO state VALUES ('extended_application_directory_options',?)",(json.dumps(wire['application_directory_options']),))
+            else:db.execute("DELETE FROM state WHERE key='extended_application_directory_options'")
             if has_target_projection:
                 db.execute("INSERT OR REPLACE INTO state VALUES ('extended_target_controls',?)",(json.dumps(wire['target_controls']),))
             if 'file_access_options' in wire:db.execute("INSERT OR REPLACE INTO state VALUES ('extended_file_access_options',?)",(json.dumps(wire['file_access_options']),))
             else:db.execute("DELETE FROM state WHERE key='extended_file_access_options'")
+            if 'filename_prefix_options' in wire:db.execute("INSERT OR REPLACE INTO state VALUES ('extended_filename_prefix_options',?)",(json.dumps(wire['filename_prefix_options']),))
+            else:db.execute("DELETE FROM state WHERE key='extended_filename_prefix_options'")
         self.policy=policy
         if has_target_projection:
             desired=hashlib.sha256(json.dumps(policy['website_control'],sort_keys=True).encode()).hexdigest()
@@ -162,22 +176,29 @@ class ExtendedWorker:
             except OSError as exc:self.status={**self.status,'status':'failed','error':str(exc)[:500]}
         return self.poll()
 
-    def poll(self):
+    def poll(self,online=True):
         if self.policy is None:
             with self.agent.db() as db:
                 row=db.execute("SELECT value FROM state WHERE key='extended_policy'").fetchone()
                 options=db.execute("SELECT value FROM state WHERE key='extended_audit_options'").fetchone()
+                collection=db.execute("SELECT value FROM state WHERE key='extended_collection_options'").fetchone()
+                directory_options=db.execute("SELECT value FROM state WHERE key='extended_application_directory_options'").fetchone()
                 access_options=db.execute("SELECT value FROM state WHERE key='extended_file_access_options'").fetchone()
+                prefix_options=db.execute("SELECT value FROM state WHERE key='extended_filename_prefix_options'").fetchone()
             if not row:return
             from .policy import decode_agent_policy
             packet={'body':json.loads(row[0])}
             with self.agent.db() as db:targets=db.execute("SELECT value FROM state WHERE key='extended_target_controls'").fetchone()
             if targets:packet['target_controls']=json.loads(targets[0])
             if options:packet['audit_options']=json.loads(options[0])
+            if collection:packet['collection_options']=json.loads(collection[0])
+            if directory_options:packet['application_directory_options']=json.loads(directory_options[0])
             if access_options:packet['file_access_options']=json.loads(access_options[0])
+            if prefix_options:packet['filename_prefix_options']=json.loads(prefix_options[0])
             self.policy=decode_agent_policy(packet)['body']
         self.configure_documents()
         report=dict(self.status)
+        if getattr(self,'mode_revision',0):report['mode_revision']=self.mode_revision
         if 'machine_agent' in self.agent.feature_status:report['machine_agent']=self.agent.feature_status['machine_agent']
         report['website_control']=getattr(self,'website_status',{'protocol':1,'state':'cached_requires_sync'})
         from .serialization import digest,canonical
@@ -209,6 +230,8 @@ class ExtendedWorker:
                         body={**policy,'_native_interactive_open_primary':True}
                 polled=self.collector.poll(body)
                 report['process_audit']={'status':('collecting' if self.status.get('process_audit_enabled') else 'reading_existing_policy_not_verified') if policy['application_audit'] else 'disabled',**polled}
+                from .audit_collection import stop_signature
+                report['process_audit']['stop_filter'] = stop_signature(policy)
                 report['file_open_audit']='compatibility_paused' if body.get('_custom_skip_security_files') else 'native_interactive_primary_security_mutations_preserved' if body.get('_native_interactive_open_primary') else 'collects_existing_sacl_events_no_sacl_provisioning' if policy['file_audit']['enabled'] else 'disabled'
                 # Query only, at most once per 15 minutes. Presence of the
                 # worker does not prove File System success auditing or SACLs.
@@ -236,14 +259,22 @@ class ExtendedWorker:
                 if not self.block_collector:self.block_collector=AppLockerCollector(self.agent)
                 report['application_block_log']=self.block_collector.poll()
             except OSError as exc:report['application_block_log']={'status':'failed','error':str(exc)[:300]}
-        self.agent.flush(max_batches=2,require_empty=False)
-        self.agent.call('/api/agent/extended-status',report)
+        if not online:return report
+        self.agent.upload_if_due()
+        # Local collection keeps its 5 second round. The center only needs a
+        # changed status at once and otherwise one report per 30 seconds; its
+        # freshness window is 120 seconds.
+        from time import monotonic
+        state=report.get('status')
+        if state!=getattr(self,'_reported_status',self) or monotonic()>=getattr(self,'_next_report',0):
+            self.agent.call('/api/agent/extended-status',report)
+            self._reported_status=state;self._next_report=monotonic()+STATUS_REPORT_SECONDS
         return report
 
     def close(self):
         if self.documents:self.documents.close()
 
-    def restore(self):
+    def restore(self,*,keep_process_audit=False,pause=False):
         if any((self.agent.config_path.parent/('website-policy-'+b+'.json')).exists() for b in ('chrome','edge')):
             from .website_control import sync as sync_website
             from .category_rules import WEBSITE_DEFAULT
@@ -255,14 +286,15 @@ class ExtendedWorker:
             DocumentWorker(self.agent,self.directory).restore()
         # Only policies installed by the explicit MIS deployment command are
         # owned here. Keep unrelated browser policies and refuse conflicts.
-        if (self.agent.config_path.parent/'browser-policy-owned.json').exists():
+        if not pause and (self.agent.config_path.parent/'browser-policy-owned.json').exists():
             from .browser_deployment import execute,Registry
             execute(None,'restore',self.agent.config_path.parent,Registry())
-        if (self.agent.config_path.parent/'browser-trust-owned.json').exists():
+        if not pause and (self.agent.config_path.parent/'browser-trust-owned.json').exists():
             from .browser_trust import protected,execute as restore_trust,WindowsRoots
             config,root=protected(self.agent.config_path)
             if restore_trust(config,'restore',root,WindowsRoots())['status']=='preserved_after_interruption':raise OSError('CA 信任歸屬無法確認；已保留憑證與復原紀錄，請 MIS 核對')
         from .process_audit import configure
-        report=configure(self.directory,False)
-        if any((self.directory/name).exists() for name in ('applocker-managed.json','appidsvc-original.json')):return {**native_action(self.directory,'Restore'),**report}
+        report=configure(self.directory,False,keep_current=keep_process_audit)
+        if any((self.directory/name).exists() for name in ('applocker-managed.json','appidsvc-original.json')):
+            return {**native_action(self.directory,'Restore',manage_audit=False),**report}
         return {'status':'restored',**report}

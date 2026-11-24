@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager,ExitStack
 from pathlib import Path
 from . import update_packages as packages
-from .update_client import Transaction,probe,save,RetryUpdate
+from .update_client import Transaction,probe,save,RetryUpdate,SWITCH_PHASES
 from . import __version__
 
 
@@ -201,6 +201,8 @@ class NativeAdapter:
             time.sleep(.5)
     def rollback(self,state):
         from .update_windows import rename_protected
+        if getattr(self,'service',None) and self.service.recovery_disabled(self.service_expected):
+            raise PermissionError('Recovery hold requires MIS review; preserve current programs and rollback evidence')
         backup=packages.plain(self.program/('USBControl.rollback-'+state['job']['id']))
         if backup.exists():
             self.stop();protected_tree(backup)
@@ -227,6 +229,13 @@ def broker_error(agent,code,exc):
     try:save(agent.config_path.parent/'update-broker-status.json',{'state':'needs_review_or_retry','code':code,'error_type':type(exc).__name__,'time':time.time()})
     except (OSError,ValueError):pass
     diagnostic(agent,'native',code)
+
+
+@contextmanager
+def installation_scope():
+    """Only active program changes share the install lock; idle polling does not."""
+    from .single_instance import machine_instance
+    with machine_instance('native-installer-machine','all-devices'):yield
 
 
 @contextmanager
@@ -257,26 +266,26 @@ def run(config,stop):
                 if saved(agent):return
                 if adapter is None:
                     candidate=NativeAdapter(agent)
-                    transaction=Transaction(agent,'native',candidate);adapter=candidate
+                    transaction=Transaction(agent,'native',candidate,coordination=installation_scope);adapter=candidate
                 phase='recovery_failed'
                 transaction.recover()
                 current=adapter.current()
-                save(agent.config_path.parent/'broker-health.json',{'version':__version__,'native_version':current,'pid':os.getpid(),'time':time.time()})
+                save(agent.config_path.parent/'broker-health.json',{'version':__version__,'native_version':current,'pid':os.getpid(),'time':time.time(),'install_coordination':1})
                 from .updater_refresh import pending
                 if pending(agent):stop.wait(1);continue
                 phase='transport_failed'
-                reply=agent.call('/api/agent/updates/poll',{'role':'native','version':current,'broker_version':__version__})
+                reply=agent.call('/api/agent/updates/poll',{'role':'native','version':current,'broker_version':__version__,'resume_protocol':True})
                 if reply.get('job'):
                     phase='execution_failed'
                     try:transaction.apply(reply['job'])
-                    except RetryUpdate:
+                    except RetryUpdate as exc:
                         from .update_client import validate_job
                         job,_=validate_job(reply['job'],agent.config['update_key'],agent.config['device_id'])
-                        try:transaction.report(job,'waiting',adapter.current(),'下載暫時中斷，連線恢復後重試')
+                        try:transaction.report(job,'waiting',adapter.current(),str(exc))
                         except ConnectionError:pass
                     except Exception:
                         state=json.loads(transaction.journal.read_text(encoding='utf-8')) if transaction.journal.is_file() else None
-                        if not state or state['phase'] not in ('healthy','rolled_back'):
+                        if not state or state['phase'] not in ('healthy','rolled_back',*SWITCH_PHASES):
                             from .update_client import validate_job
                             job,_=validate_job(reply['job'],agent.config['update_key'],agent.config['device_id'])
                             transaction.report(job,'failed',adapter.current(),(state or {}).get('error') or '受保護更新未完成，保留程式與備份，請 MIS 檢查')

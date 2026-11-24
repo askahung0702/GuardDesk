@@ -18,6 +18,7 @@ def load_custom(agent):
     agent.custom_packet=check_packet(agent,json.loads(row[0])) if row else None
 
 def effective_body(agent):
+    if getattr(agent,'idle_revision',0):return copy.deepcopy(DEFAULT)
     packet=getattr(agent,'custom_packet',None)
     return packet['body'] if packet else copy.deepcopy(DEFAULT)
 
@@ -164,9 +165,12 @@ class CustomClient:
 
     def fetch(self):
         packet=check_packet(self.agent,self.agent.call('/api/agent/custom-settings',{'protocol':2}))
-        if getattr(self.agent,'custom_packet',None)!=packet:
-            with self.agent.db() as db:db.execute("INSERT OR REPLACE INTO state VALUES ('custom_packet_v1',?)",(canonical(packet),))
-        self.agent.custom_packet=packet
+        with self.agent.db() as db:
+            if db.execute("SELECT 1 FROM state WHERE key='heartbeat_only'").fetchone():
+                raise ConnectionError('端點目前只回報心跳')
+            if getattr(self.agent,'custom_packet',None)!=packet:
+                db.execute("INSERT OR REPLACE INTO state VALUES ('custom_packet_v1',?)",(canonical(packet),))
+            self.agent.custom_packet=packet
         return packet
 
     def close(self):
@@ -179,6 +183,11 @@ class CustomClient:
         self.thread=threading.Thread(target=self.run,name='GuardDesk custom settings',daemon=True);self.thread.start();return self
 
     def cycle(self):
+        if getattr(self.agent,'idle_revision',0):
+            # The native worker restores its owned network lease at the mode transition.
+            self.next_fetch=0
+            self.online=False
+            return
         from .decommission import saved
         if saved(self.agent):self.local_stop.set();return
         now=time.monotonic();contact=False;packet=getattr(self.agent,'custom_packet',None)
@@ -192,7 +201,7 @@ class CustomClient:
         report={'state':'reported' if online else 'offline','compatibility':sorted(compatibility_modules(effective_body(self.agent),build_number()))}
         if self.native:
             with self.effect_lock:
-                if self.stop.is_set() or self.local_stop.is_set():return {'state':'stopped'}
+                if self.stop.is_set() or self.local_stop.is_set() or getattr(self.agent,'idle_revision',0):return {'state':'stopped'}
                 try:
                     # No registry access or writes on the default path.
                     mode=effective_body(self.agent)['network']['ipv6']

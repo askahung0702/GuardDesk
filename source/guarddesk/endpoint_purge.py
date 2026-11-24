@@ -90,7 +90,8 @@ def eligible(db,did):
             ('SELECT 1 FROM custom_action_leases WHERE device_id=? AND expires>?',(did,now)),
             ("SELECT 1 FROM remote_sessions WHERE device_id=? AND status IN ('requested','active')",(did,)),
             ("SELECT 1 FROM audit_exports WHERE state IN ('queued','running','cancelling') LIMIT 1",())]
-    if any(db.execute(sql,args).fetchone() for sql,args in checks):
+    from .updates import switching
+    if switching(db,did) or any(db.execute(sql,args).fetchone() for sql,args in checks):
         raise ManagementError(409,'尚有更新、維護、遠端協助或匯出工作，請先完成或取消')
     return device
 

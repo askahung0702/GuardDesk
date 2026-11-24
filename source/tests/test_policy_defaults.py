@@ -8,7 +8,7 @@ import time
 import unittest
 from guarddesk.store import Store, canonical
 from guarddesk.policy import DEFAULT_POLICY, decode_agent_policy
-from guarddesk.policy_defaults import ROAMING, APPLICATIONS, MARKER, server_policy
+from guarddesk.policy_defaults import ROAMING, CLAUDE_TEMP, APPLICATIONS, MARKER, SYSTEM32, SYSTEM32_MARKER, server_policy
 from guarddesk.management import ControlPlane
 from guarddesk.application_exclusions import excluded_application
 from guarddesk.file_exclusions import excluded_activity
@@ -23,18 +23,19 @@ class PolicyDefaultsTest(unittest.TestCase):
         body=copy.deepcopy(DEFAULT_POLICY if body is None else body)
         with self.store.connect() as db:
             db.execute('DELETE FROM control_meta WHERE key=?',(MARKER,))
+            db.execute('DELETE FROM control_meta WHERE key=?',(SYSTEM32_MARKER,))
             db.execute('UPDATE policies SET body=? WHERE version=1',(canonical(body),))
         return body
 
     def test_new_center_has_explicit_defaults_without_changing_legacy_decode(self):
         with self.store.connect() as db:body=Store.policy(db)['body']
-        self.assertEqual(body['file_audit']['exclude_paths'],[ROAMING])
+        self.assertEqual(body['file_audit']['exclude_paths'],[ROAMING, CLAUDE_TEMP])
         self.assertEqual(body['application_audit_exclusions'],list(APPLICATIONS))
         self.assertEqual(decode_agent_policy({'body':{}})['body']['application_audit_exclusions'],[])
         self.assertEqual(decode_agent_policy({'body':{}})['body']['file_audit']['exclude_paths'],[])
         self.assertEqual(DEFAULT_POLICY['file_audit']['exclude_paths'],[])
         first=server_policy();first['file_audit']['exclude_paths'].clear()
-        self.assertEqual(server_policy()['file_audit']['exclude_paths'],[ROAMING])
+        self.assertEqual(server_policy()['file_audit']['exclude_paths'],[ROAMING, CLAUDE_TEMP])
 
     def test_upgrade_merges_once_preserves_custom_rules_versions_and_event_hashes(self):
         before=copy.deepcopy(DEFAULT_POLICY);before['file_audit']['exclude_paths']=[r'D:\Owned']
@@ -55,7 +56,7 @@ class PolicyDefaultsTest(unittest.TestCase):
 
     def test_case_variants_not_duplicated_and_explicit_clear_survives_restart(self):
         body=copy.deepcopy(DEFAULT_POLICY);body['file_audit']['exclude_paths']=[ROAMING.upper()]
-        body['application_audit_exclusions']=['CONHOST.EXE','DOCKER.EXE'];self.legacy(body)
+        body['application_audit_exclusions']=['CONHOST.EXE','DOCKER.EXE',SYSTEM32.upper()];self.legacy(body)
         Store(self.path)
         with self.store.connect() as db:
             self.assertEqual(Store.policy(db)['version'],1)
@@ -103,6 +104,7 @@ class PolicyDefaultsTest(unittest.TestCase):
         self.assertFalse(excluded_activity('agent.audit_gap',{'path':r'C:\Users\dev\AppData\Roaming\a'},[ROAMING]))
         self.assertFalse(excluded_activity('file.moved',{'source_path':r'C:\Users\dev\AppData\Roaming\a','destination_path':r'C:\Users\dev\Documents\a'},[ROAMING]))
         for name in APPLICATIONS:
+            if name==SYSTEM32:name+=r'WindowsPowerShell\v1.0\powershell.exe'
             self.assertTrue(excluded_application('application.started','info',{'process':name},list(APPLICATIONS)))
             self.assertFalse(excluded_application('application.blocked','warning',{'process':name},list(APPLICATIONS)))
 

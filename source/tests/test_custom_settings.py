@@ -257,7 +257,7 @@ class CustomRuntimeTest(unittest.TestCase):
         from unittest.mock import Mock
         from guarddesk.application_control import ExtendedWorker
         self.agent.custom_packet=packet(body={**copy.deepcopy(custom.DEFAULT),'compatibility':[{'module':'process_events','min_build':0,'max_build':999999,'expires':time.time()+3600,'reason':'Test'}]})
-        self.agent.flush=lambda **kwargs:None
+        self.agent.upload_if_due=lambda:None
         worker=ExtendedWorker(self.agent);worker.policy=copy.deepcopy(DEFAULT_POLICY);worker.policy['file_audit']['enabled']=False;worker.collector=Mock();worker.collector.poll.return_value={'read':0}
         worker.poll();self.assertFalse(worker.collector.poll.call_args.args[0]['application_audit']);self.assertTrue(worker.policy['application_audit'])
         self.agent.custom_packet=packet();worker.poll();self.assertTrue(worker.collector.poll.call_args.args[0]['application_audit'])

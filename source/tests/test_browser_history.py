@@ -50,13 +50,38 @@ class BrowserHistoryTest(unittest.TestCase):
     def tearDown(self):
         self.collector.close(); self.discovery.stop(); self.temp.cleanup()
 
-    def policy(self, enabled):
+    def policy(self, enabled, detail='detailed'):
         with self.agent.db() as db:
-            db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)", (canonical({'version': 1, 'body': {**DEFAULT_POLICY, 'browser_audit': enabled}}),))
+            db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)", (canonical({'version': 1, 'body': {**DEFAULT_POLICY, 'browser_audit': enabled, 'browser_visit_detail': detail}}),))
 
     def events(self):
         with self.agent.db() as db:
             return [json.loads(r[0]) for r in db.execute("SELECT payload FROM outbox WHERE json_extract(payload,'$.kind')='web.navigation'")]
+
+    def test_domain_mode_drops_sensitive_fields_before_persistence_and_retry(self):
+        self.policy(True, 'domain')
+        self.collector.poll()
+        visit(self.history, 1, 'https://alice:secret@office.test/case/123?q=client#private', '客戶案件')
+        self.collector.poll()
+        details = self.events()[0]['details']
+        self.assertEqual(set(details), {'domain','source','coverage','browser','user'})
+        self.assertEqual(details['domain'], 'office.test')
+        visit(self.history, 2, title='before scope changed')
+        self.policy(True, 'detailed')
+        self.collector.poll()
+        self.assertNotIn('title', self.events()[-1]['details'])
+        visit(self.history, 3)
+        self.collector.poll()
+        self.assertEqual(self.events()[-1]['details']['title'], '測試文件')
+        self.policy(True, 'domain')
+        outgoing = []
+        def acknowledge(path, body):
+            outgoing.extend(body['events'])
+            return {'accepted': [e['event_id'] for e in body['events']]}
+        with patch.object(self.agent, 'call', acknowledge):
+            self.agent.flush()
+        self.assertEqual(len(outgoing), 3)
+        self.assertTrue(all(set(e['details']) == set(details) for e in outgoing))
 
     def test_new_visits_repeat_restart_redaction_and_read_only(self):
         visit(self.history, 1, occurred=time.time()-600)
