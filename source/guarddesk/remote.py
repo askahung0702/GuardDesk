@@ -116,7 +116,7 @@ def route(server,db,user,method,path,body,query):
         return result
     if path=='/api/remote/catalog' and method=='GET':
         admin=user['role']=='admin'
-        devices=[dict(r) for r in db.execute('SELECT d.id,d.name,p.account,p.ready,p.received,COALESCE(c.protocol,1) AS protocol,r.reason AS readiness FROM devices d LEFT JOIN remote_presence p ON p.device_id=d.id LEFT JOIN remote_capabilities c ON c.device_id=d.id LEFT JOIN remote_readiness r ON r.device_id=d.id WHERE d.revoked=0')]
+        devices=[dict(r) for r in db.execute('SELECT d.id,d.name,d.registered_name,p.account,p.ready,p.received,COALESCE(c.protocol,1) AS protocol,r.reason AS readiness FROM devices d LEFT JOIN remote_presence p ON p.device_id=d.id LEFT JOIN remote_capabilities c ON c.device_id=d.id LEFT JOIN remote_readiness r ON r.device_id=d.id WHERE d.revoked=0')]
         grants,rules=catalog_grants(db,user['username'],admin,devices,now)
         if not admin:
             grants=[r for r in grants if r['username']==user['username'] and r['expires']>now]

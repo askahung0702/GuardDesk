@@ -251,14 +251,13 @@ class NativeControllerTests(unittest.TestCase):
             def __init__(self,value=None):self.value=value;self.options={}
             def get(self):return self.value
             def set(self,value):self.value=value
-            def current(self):return 0
             def configure(self,**kwargs):self.options.update(kwargs)
         viewer=RemoteViewer.__new__(RemoteViewer)
-        viewer.device_box=Value();viewer.mode_box=Value();viewer.quality_box=Value();viewer.connect_button=Value()
+        viewer.mode_box=Value();viewer.quality_box=Value();viewer.connect_button=Value()
         viewer.mode=Value('僅檢視');viewer.quality=Value('清晰 · 原始解析度／最高 2 FPS');viewer.status=Value()
         viewer.catalog_data={'clarity_protocol':3};viewer.engine=None;viewer.busy=False;viewer.native_root=Path('owned');viewer.native_cohort='a'*64
-        device={'id':'a'*24,'grant':{'can_control':True},'ready':True,'protocol':6,'native':{'wire':1,'cohort_sha256':'a'*64,'features':['native_capture','native_input','webrtc_video','native_renderer']}}
-        viewer.devices=[device];viewer.selection_changed()
+        device={'id':'a'*24,'grant':{'can_control':True,'expires':253402300799},'ready':True,'protocol':6,'native':{'wire':1,'cohort_sha256':'a'*64,'features':['native_capture','native_input','webrtc_video','native_renderer']}}
+        viewer.devices={device['id']:device};viewer.selected_device_id=device['id'];viewer.selection_changed()
         self.assertIn('原生即時 · 內部預覽',viewer.quality_box.options['values'])
         self.assertEqual(viewer.quality.get(),'原生即時 · 內部預覽');self.assertEqual(viewer.mode.get(),'僅檢視')
         viewer.quality_manual=True;viewer.quality.set('清晰 · 原始解析度／最高 2 FPS');viewer.selection_changed()

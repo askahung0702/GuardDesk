@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import math
+import re
 import secrets
 import ssl
 import sys
@@ -762,6 +763,19 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/agent/native-usb-status':return native_usb.accept_status(db,device,body),headers,mime
             if path == "/api/agent/heartbeat":
                 inventory, ack = body.get("inventory", {}), body.get("policy_version", 0)
+                reference=body.get('software_ref')
+                if reference is not None:
+                    from .endpoint_transport import software_reference
+                    if not isinstance(reference,str) or not re.fullmatch('[0-9a-f]{64}',reference):
+                        raise APIError(400,'軟體盤點識別碼格式不正確')
+                    if inventory is None:
+                        fields=body.get('inventory_fields')
+                        if not isinstance(fields,dict) or 'software' in fields or len(canonical(fields))>64000:
+                            raise APIError(400,'精簡心跳欄位不正確')
+                        saved=json.loads(device['inventory'])
+                        if software_reference(saved)!=reference:
+                            return {'inventory_required':True},headers,mime
+                        inventory={**fields,'software':saved['software']}
                 fingerprint=body.get('policy_fingerprint','')
                 if not isinstance(inventory, dict) or len(canonical(inventory)) > 64000 or type(ack) is not int or not 0 <= ack <= 9223372036854775807 or not isinstance(fingerprint,str) or (fingerprint and (len(fingerprint)!=64 or any(c not in '0123456789abcdef' for c in fingerprint))):
                     raise APIError(400, "心跳欄位不正確")
@@ -769,13 +783,33 @@ class Handler(BaseHTTPRequestHandler):
                     current=management.ControlPlane(db).bundle(dict(device))
                     db.execute('UPDATE devices SET last_seen=? WHERE id=?',(time.time(),device['id']))
                     return {'policy':agent_policy_wire(current),'server_time':time.time()},headers,mime
-                current=management.ControlPlane(db).bundle({**dict(device),'inventory':inventory})
-                db.execute("UPDATE devices SET last_seen=?,policy_version=?,policy_fingerprint=?,inventory=?,last_address=? WHERE id=?", (time.time(), ack,fingerprint, canonical(inventory),self.client_address[0], device["id"]))
+                previous_name = device['name']
+                reported_name = inventory.get('hostname')
+                name = previous_name
+                registered_name = device['registered_name']
+                if (isinstance(reported_name, str) and len(reported_name) <= 120
+                        and re.fullmatch(r'[\w-]+(?:\.[\w-]+)*', reported_name)):
+                    if reported_name.casefold() != previous_name.casefold():
+                        name = reported_name
+                        registered_name = registered_name or previous_name
+                else:
+                    inventory.pop('hostname', None)
+                current = management.ControlPlane(db).bundle({**dict(device),'name':name,'inventory':inventory})
+                db.execute('UPDATE devices SET name=?, registered_name=?, last_seen=?, policy_version=?, '
+                           'policy_fingerprint=?, inventory=?, last_address=? WHERE id=?',
+                           (name, registered_name, time.time(), ack, fingerprint, canonical(inventory),
+                            self.client_address[0], device['id']))
+                if name != previous_name:
+                    Store.event(db, device['id'], 'device.hostname_changed', 'info',
+                                {'previous_name':previous_name,'name':name})
                 if ack != device["policy_version"] or fingerprint!=device['policy_fingerprint']:
                     Store.event(db, device["id"], "policy.applied", "info", {"version": ack,'fingerprint':fingerprint,'meaning':'received_not_proof_of_enforcement'})
                 from .browser_dispatch import projection
                 from .browser_trust import projection as trust_projection
-                return {"policy": agent_policy_wire(current), "server_time": time.time(),'browser_dispatch':projection(self.server.store.path.resolve().parent),'browser_trust':trust_projection(self.server.store.path.resolve().parent)}, headers, mime
+                reply={"policy": agent_policy_wire(current), "server_time": time.time(),'browser_dispatch':projection(self.server.store.path.resolve().parent),'browser_trust':trust_projection(self.server.store.path.resolve().parent)}
+                if reference is not None and software_reference(inventory)==reference:
+                    reply['software_ack']=reference
+                return reply, headers, mime
             if path == "/api/agent/events":
                 events = body.get("events")
                 if not isinstance(events, list) or len(events) > 100:
@@ -976,7 +1010,7 @@ class Handler(BaseHTTPRequestHandler):
             return {"devices": devices, "stats": stats, "policy": Store.policy(db), "server_time": now,**plane.catalog(devices)}, headers, mime
         if method=='GET' and path=='/api/device-detail':
             params=parse_qs(urlsplit(self.path).query);device_id=params.get('device_id',[''])[0]
-            row=db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices WHERE id=?',(device_id,)).fetchone()
+            row=db.execute('SELECT id,name,registered_name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices WHERE id=?',(device_id,)).fetchone()
             if not row:raise APIError(404,'找不到端點')
             device=dict(row);device['inventory']=json.loads(device['inventory'])
             device['status']='revoked' if device['revoked'] else 'online' if time.time()-device['last_seen']<90 else 'offline'
@@ -1055,7 +1089,7 @@ class Handler(BaseHTTPRequestHandler):
             identity=dict(query)
             if sort=='device':
                 # Names are mutable. Expire the snapshot instead of silently
-                # skipping/duplicating rows after an administrator renames a PC.
+                # skipping/duplicating rows after an endpoint reports a rename.
                 identity['_device_names']=[digest(canonical([tuple(r) for r in db.execute('SELECT id,name FROM devices ORDER BY id')]))]
             filter_id=pagination.filter_identity(identity)
             if cursor_mode:

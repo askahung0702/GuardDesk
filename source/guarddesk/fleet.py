@@ -9,7 +9,7 @@ from .management import ManagementError
 
 def catalog(db,plane):
     devices=[];now=time.time()
-    for row in db.execute('SELECT id,name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices ORDER BY last_seen DESC'):
+    for row in db.execute('SELECT id,name,registered_name,department,last_seen,policy_version,policy_fingerprint,revoked,inventory,group_id,management_revision,last_address,enrolled_at,last_contact,heartbeat_only,mode_revision,mode_ack,last_offline_seconds FROM devices ORDER BY last_seen DESC'):
         device=dict(row);device['inventory']=json.loads(device['inventory'])
         device['status']='revoked' if device['revoked'] else 'online' if now-device['last_seen']<90 else 'offline'
         device['availability']=policy_progress.availability(device,now)
@@ -40,7 +40,7 @@ def matches_query(device,query):
     addresses=[a for a in addresses[:16] if isinstance(a,str)] if isinstance(addresses,list) else []
     source=device.get('last_address');mac=assets.get('mac_address')
     if isinstance(source,str):addresses.append(source)
-    values=[device['name'],device['department'],*accounts,*addresses]
+    values=[device['name'],device.get('registered_name',''),device['department'],*accounts,*addresses]
     if isinstance(mac,str):values.append(mac)
     if query in ' '.join(values).casefold():return True
     try:target=ipaddress.ip_address(query)

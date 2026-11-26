@@ -185,6 +185,8 @@ class Store:
                        'started REAL NOT NULL, ended REAL, PRIMARY KEY(device_id,started))')
             for name in ('heartbeat_only','mode_revision','mode_ack','last_offline_seconds'):
                 if name not in columns:db.execute('ALTER TABLE devices ADD COLUMN '+name+' INTEGER NOT NULL DEFAULT 0')
+            if 'registered_name' not in columns:
+                db.execute("ALTER TABLE devices ADD COLUMN registered_name TEXT NOT NULL DEFAULT ''")
             if 'zip_sha256' not in {r[1] for r in db.execute('PRAGMA table_info(audit_exports)')}:db.execute("ALTER TABLE audit_exports ADD COLUMN zip_sha256 TEXT NOT NULL DEFAULT ''")
             for name,definition in [('group_id','TEXT REFERENCES endpoint_groups(id)'),('management_revision','INTEGER NOT NULL DEFAULT 1'),('policy_fingerprint',"TEXT NOT NULL DEFAULT ''"),('last_address',"TEXT NOT NULL DEFAULT ''"),('enrolled_at','REAL NOT NULL DEFAULT 0'),('last_contact','REAL NOT NULL DEFAULT 0')]:
                 if name not in columns:db.execute('ALTER TABLE devices ADD COLUMN '+name+' '+definition)

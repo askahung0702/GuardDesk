@@ -168,6 +168,15 @@ class HandoffQueueTest(unittest.TestCase):
         self.queue.flush()
         self.assertEqual(next(r for r in self.rows() if r['kind']=='agent.audit_gap')['details']['lost_records'], 7)
 
+    def test_replaying_one_drop_does_not_displace_a_new_drop(self):
+        original=record()
+        for _ in range(MAX_BUFFER+7):
+            self.queue.add(original)
+        self.queue.add(record(operation_id='a1'*16))
+        self.assertEqual((len(self.queue.buffer),self.queue.loss),(2,0))
+        self.queue.flush()
+        self.assertEqual(len([r for r in self.rows() if r['kind']==KIND]),2)
+
     def test_invalid_record_does_not_discard_valid_peers_or_native_gap(self):
         class Trace:
             def poll(self):

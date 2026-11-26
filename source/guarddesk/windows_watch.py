@@ -95,6 +95,31 @@ class RenamePairs:
         return result
 
 
+def consolidate_moves(events):
+    """A same-buffer remove/add pair is already represented by its correlated move."""
+    moves=[details for kind,details in events
+           if kind=='file.moved' and details.get('correlation')=='same_volume_file_id_remove_add']
+    if not moves:return events
+    from .document_saves import temp_cleanup
+    members={}
+    for index,(kind,details) in enumerate(events):
+        ref=details.get('_save_object')
+        if ref and ref[0]:
+            members.setdefault(str(ref[0]),[]).append((index,kind,details['path'],ref[1]))
+    represented=set()
+    for move in moves:
+        pair=members.get(move['file_id'],())
+        if len(pair)!=2:continue
+        before,after=pair
+        if (before[1:3]!=('file.deleted',move['source_path'])
+                or after[1:3]!=('file.created',move['destination_path']) or before[3]!=after[3]):
+            continue
+        # The document-save reducer needs the underlying names for a staged replacement.
+        if temp_cleanup(ntpath.normcase(before[2]),ntpath.normcase(after[2])):continue
+        represented.update((before[0],after[0]))
+    return [event for index,event in enumerate(events) if index not in represented]
+
+
 class DirectoryMonitor:
     def __init__(self,agent,policy):
         self.agent,self.policy=agent,policy
@@ -174,7 +199,7 @@ class DirectoryMonitor:
                     ready.append((kind,details))
                 if ready:
                     with self.agent.db() as db:
-                        for kind,details in ready:
+                        for kind,details in consolidate_moves(ready):
                             self.agent.queue(kind,{**details,'source':'ReadDirectoryChangesW','user':None,'process':None,'identity':'see_corresponding_security_event'},db=db)
             except (OSError,ValueError) as exc:
                 self.agent.queue('agent.audit_gap',{'root':root,'reason':str(exc)[:200]},'critical')

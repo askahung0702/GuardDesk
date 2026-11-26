@@ -53,6 +53,12 @@ test('suggestions remain bounded for a large catalog and empty search',()=>{
  assert.equal(ctx.endpointSearchMatches(entries,'PC').length,20);assert.equal(ctx.endpointSearchMatches(entries,'').length,0);
  assert.equal(ctx.resolveEndpointSearch(entries,'PC-9999'),'9999');
 });
+test('the registered name finds a renamed endpoint without resolving a dispatch target by alias',()=>{
+ const entries=ctx.endpointSearchEntries([{id:'one',name:'NEW-PC',registered_name:'OLD-PC'}]);
+ assert.equal(ctx.endpointSearchMatches(entries,'old-pc')[0].value,'NEW-PC');
+ assert.equal(ctx.resolveEndpointSearch(entries,'OLD-PC'),null);
+ assert.equal(ctx.resolveEndpointSearch(entries,'NEW-PC'),'one');
+});
 test('render escapes endpoint display and IDs in existing HTML boundary',()=>{
  const html=ctx.endpointSearchField('owned','device','x1',{allowAll:true});
  assert.ok(html.includes('&lt;img'));assert.ok(!html.includes('value="<img'));

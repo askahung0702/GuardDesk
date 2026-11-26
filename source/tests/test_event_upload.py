@@ -84,6 +84,39 @@ class EventUploadTest(unittest.TestCase):
         self.assertEqual({e['event_id'] for e in self.batches[0]},
                          {'a','another-save','another-open','another-user','c','d'})
 
+    def test_domain_policy_merges_legacy_visits_before_send_and_after_lost_ack(self):
+        from guarddesk.policy import DEFAULT_POLICY
+        details = dict(user=r'EXAMPLE\reader', browser='chrome', source='browser_history', coverage='saved_visit')
+        with self.agent.db() as db:
+            packet = {'version':1, 'body':{**DEFAULT_POLICY, 'browser_audit':True, 'browser_visit_detail':'domain'}}
+            db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)", (canonical(packet),))
+        def visit(eid, when, **extra):
+            self.agent.queue('web.navigation', {**details, 'url':'https://docs.example.test/'+eid,
+                             'visit_id':eid, **extra}, occurred=when, event_id=eid)
+        for number in range(4):
+            visit(str(number), 60+number/10)
+        def lose_ack(path, body):
+            self.accept(path, body)
+            raise ConnectionError('lost ACK')
+        with patch.object(self.agent,'call',lose_ack), self.assertRaises(ConnectionError):
+            self.agent.flush()
+        self.assertEqual(len(self.batches[0]),1)
+        self.assertEqual(self.agent.queue_status()['pending'],4)
+        self.agent = Agent(self.config)
+        with patch.object(self.agent,'call',self.accept):
+            self.agent.flush()
+            self.assertEqual(self.batches[1], self.batches[0])
+            visit('late',60.9,user=r'example\READER')
+            visit('next-second',61)
+            visit('other-browser',60.1,browser='edge')
+            visit('other-user',60.1,user=r'EXAMPLE\other')
+            visit('other-domain',60.1,url='https://other.example.test/')
+            self.agent.flush()
+        self.assertEqual({e['event_id'] for e in self.batches[2]},
+                         {'next-second','other-browser','other-user','other-domain'})
+        self.assertEqual(self.agent.queue_status()['pending'],0)
+        self.assertTrue(all('url' not in e['details'] for batch in self.batches for e in batch))
+
     def test_ack_loss_and_restart_reuse_first_wire_id(self):
         self.write('first')
         self.write('second')
@@ -104,13 +137,121 @@ class EventUploadTest(unittest.TestCase):
         self.assertEqual(len(self.batches),2)
         self.assertEqual(self.agent.queue_status()['pending'],0)
 
+    def test_partial_ack_only_retries_missing_groups_after_restart(self):
+        self.write('first');self.write('same-write')
+        self.agent.queue('application.started',{'path':'editor.exe'},event_id='process')
+        self.agent.queue('file.created',{'path':'report.txt'},event_id='created')
+        for malformed in (['first','unknown'],['first','first']):
+            with patch.object(self.agent,'call',return_value={'accepted':malformed}),self.assertRaises(ConnectionError):
+                self.agent.flush()
+            self.assertEqual(self.agent.queue_status()['pending'],4)
+        with patch.object(self.agent,'call',return_value={'accepted':['first','process']}),self.assertRaises(ConnectionError):
+            self.agent.flush()
+        self.agent=Agent(self.config)
+        self.assertEqual(self.agent.queue_status()['pending'],1)
+        with patch.object(self.agent,'call',self.accept):
+            self.agent.flush()
+        self.assertEqual([e['event_id'] for e in self.batches[0]],['created'])
+
     def test_receipts_after_ack_expire_and_isolate_devices(self):
-        for stamp, device in [(100, 'a'),(180, 'a'),(180, 'b'),(221, 'a')]:
+        for stamp, device in [(100, 'a'),(180, 'a'),(180, 'b'),(221, 'a'),
+                              (101+event_upload.RECEIPT_SECONDS, 'a')]:
             self.agent.config['device_id'] = device
             with patch('time.time',return_value=stamp), patch.object(self.agent,'call',self.accept):
                 self.agent.queue('web.navigation',{'domain':'fixture.test'},occurred=90,event_id='history-repeat')
                 self.agent.flush()
         self.assertEqual(len(self.batches),3)
+
+    def test_native_replay_at_capacity_after_restart_and_after_receipt_expiry(self):
+        from guarddesk.document_queue import CandidateQueue
+        details=dict(source='windows_etw_file_io',path='report.txt',native_open_id=9,
+                     process_id=47,evidence='completed_native_read',read_bytes=64)
+        observe=CandidateQueue(self.agent)
+        def read(queue,when=19.25,**change):
+            queue.add({**details,**change},when,'file.opened')
+        with patch('guarddesk.document_queue.MAX_PENDING',1), patch('time.time',return_value=100):
+            read(observe);observe.flush();read(observe)
+            status=observe.flush()
+            self.assertEqual((status['pending_document_events'],status['suppressed_candidates_unreported']),(1,0))
+            with patch.object(self.agent,'call',self.accept):
+                self.agent.flush()
+        self.agent=Agent(self.config)
+        observe=CandidateQueue(self.agent)
+        with patch('time.time',return_value=500), patch.object(self.agent,'call',self.accept):
+            read(observe);read(observe,19.26);read(observe,native_open_id=10)
+            observe.flush()
+            self.assertEqual(self.agent.flush()['sent'],2)
+        with patch('time.time',return_value=501+event_upload.RECEIPT_SECONDS), patch.object(self.agent,'call',self.accept):
+            read(observe);observe.flush();self.agent.flush()
+        self.assertEqual(self.batches[0],self.batches[-1])
+        self.assertEqual(len({e['event_id'] for b in self.batches for e in b}),3)
+        from guarddesk.store import Store
+        from guarddesk import event_storage
+        for mode in ('legacy','daily'):
+            store=Store(self.config.parent/(mode+'.sqlite3'))
+            with store.connect() as db:
+                if mode=='daily':event_storage.enable(db,store.path,snapshot_backup=False)
+            for batch in self.batches:
+                with store.connect() as db:
+                    for e in batch:
+                        Store.event(db,'device-a',e['kind'],e['severity'],e['details'],e['event_id'],e['occurred'])
+            with store.connect() as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE device_id='device-a'").fetchone()[0],3)
+            self.assertTrue(store.verify()['valid'])
+
+    def test_security_warning_replay_keeps_record_time_and_distinct_records(self):
+        from guarddesk.windows_events import SecurityCollector
+        from guarddesk.policy import DEFAULT_POLICY
+        collector=SecurityCollector(self.agent,object())
+        policy={**DEFAULT_POLICY,'file_audit':{**DEFAULT_POLICY['file_audit'],'enabled':True}}
+        with self.agent.db() as db:
+            for record,kind in [(1,1102),(1,1102),(2,4660),(2,4660),(3,1102)]:
+                collector.ingest(db,dict(event_id=kind,record_id=record,occurred=30.5,data={}),policy)
+        with patch.object(self.agent,'call',self.accept):
+            self.assertEqual(self.agent.flush()['sent'],3)
+        self.assertEqual({e['occurred'] for e in self.batches[0]},{30.5})
+        self.assertEqual({e['details']['record_id'] for e in self.batches[0]},{1,2,3})
+
+    def test_replayed_native_reads_writes_and_copies_stay_distinct_by_object(self):
+        from guarddesk.document_io import CopyCorrelator
+        from guarddesk.document_queue import CandidateQueue
+        q=CandidateQueue(self.agent)
+        def copy():
+            trace=CopyCorrelator(lambda d,t:q.add(d,t))
+            sample=dict(pid=85,tid=6,offset=0,bytes=64,status=0,occurred=21.5)
+            trace.feed(dict(sample,op='read',open_id=1,path='source.docx'))
+            trace.feed(dict(sample,op='write',open_id=2,path='dest.docx'))
+        def write(target):
+            evidence=dict(source='windows_etw_file_io',path=target,process='editor.exe',process_identity_status='creation_time_checked',
+                          process_id=85,native_open_id=2,aggregation='completed_write_burst',written_bytes=64,
+                          first_write_observed=21.4,last_write_observed=21.5)
+            q.add(evidence,21.5,'file.written')
+        for _ in range(300):
+            copy();write('dest.docx')
+        write('different.docx')
+        self.assertEqual((len(q.buffer),q.overflow),(3,0))
+        q.flush()
+        self.assertEqual(self.agent.queue_status()['pending'],3)
+        with patch.object(self.agent,'call',self.accept):
+            self.assertEqual(self.agent.flush()['sent'],3)
+        self.assertEqual([e['kind'] for e in self.batches[0]].count('file.copy_candidate'),1)
+
+    def test_native_loss_counts_survive_restart_between_reports(self):
+        from guarddesk.document_queue import CandidateQueue
+        q=CandidateQueue(self.agent)
+        with patch('time.time') as stamp, patch('time.monotonic') as clock, patch.object(self.agent,'call',self.accept):
+            stamp.return_value=100;clock.return_value=10
+            q.trace_gap(3);q.flush();self.agent.flush()
+            stamp.return_value=115;clock.return_value=25
+            q.trace_gap(4);q.flush()
+            self.assertEqual(self.agent.flush()['sent'],0)
+            q=CandidateQueue(self.agent)
+            q.initialize()
+            stamp.return_value=130;clock.return_value=40
+            q.trace_gap(5);q.flush()
+            stamp.return_value=161;clock.return_value=71
+            q.flush();self.agent.flush()
+        self.assertEqual([b[0]['details']['native_loss_counter_delta'] for b in self.batches],[3,9])
 
     def test_overlapping_senders_only_one_posts_and_collection_continues(self):
         other = Agent(self.config)

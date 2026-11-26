@@ -67,6 +67,20 @@ class PerformanceTest(unittest.TestCase):
         self.assertFalse(any(e['kind']=='file.deleted' for e in self.queued()))
         self.assertEqual(self.queued()[-1]['kind'],'agent.scan_partial')
 
+    def test_repeated_scan_failure_only_reports_change_or_recurrence(self):
+        def failed(reason):
+            with patch('guarddesk.snapshot.os.scandir',side_effect=PermissionError(reason)):
+                self.assertTrue(self.drain_scan()['partial'])
+        failed('folder inaccessible')
+        self.agent=Agent(self.config)
+        failed('folder inaccessible')
+        failed('different error')
+        self.assertFalse(self.drain_scan()['partial'])
+        failed('different error')
+        rows=self.queued()
+        self.assertEqual([row['details']['errors'] for row in rows],
+                         [['folder inaccessible'],['different error'],['different error']])
+
     def test_changed_large_file_uses_bounded_python_memory(self):
         (self.watch/'large.bin').write_bytes(b'x'*(8*1024*1024))
         tracemalloc.start()

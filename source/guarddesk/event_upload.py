@@ -17,7 +17,9 @@ from .transport_errors import Backoff, link_retry_floor, link_state
 LOG = logging.getLogger('guarddesk.agent')
 NORMAL_MIN = 60
 NORMAL_MAX = 120
-RECEIPT_SECONDS = 120
+# Remember completed deliveries through a delayed collector replay. The count
+# limit still bounds disk usage on busy devices; in-flight IDs never expire.
+RECEIPT_SECONDS = 24 * 60 * 60
 MAX_RECEIPTS = 8192
 URGENT = "json_extract(payload,'$.severity') IN ('warning','critical')"
 SCHEMA = f"""
@@ -83,23 +85,50 @@ class UploadSchedule:
         self.next_batch = time.monotonic() + delay
 
 
-def observation(event):
+def native_document_observation(kind, details):
+    if details.get('source') != 'windows_etw_file_io' or not details.get('path'):
+        return False
+    if not all(type(details.get(k)) is int and details[k] > 0 for k in ('native_open_id', 'process_id')):
+        return False
+    if kind == 'file.opened':
+        return details.get('evidence') in ('completed_native_open', 'completed_native_read')
+    if kind == 'file.written':
+        return (details.get('aggregation') == 'completed_write_burst'
+                and all(details.get(k) is not None for k in ('first_write_observed', 'last_write_observed')))
+    return (kind == 'file.copy_candidate' and details.get('evidence') == 'completed_io_range_candidate'
+            and type(details.get('source_open_id')) is int and details['source_open_id'] > 0
+            and bool(details.get('destination_path')))
+
+
+def evidence_key(kind,severity,occurred,details):
+    return 'obs:' + hashlib.sha256(canonical([kind,severity,occurred,details]).encode()).hexdigest()
+
+
+def document_event_keys(device_id, kind, occurred, details):
+    if device_id and native_document_observation(kind, details):
+        # Include the exact observation time and evidence, never round file activity to seconds.
+        key=canonical([device_id,evidence_key(kind,'info',occurred,details)])
+        return hashlib.sha256(key.encode()).hexdigest()[:32],key
+    return None,None
+
+
+def observation(event, device_id):
     """Only correlate independent envelopes when the collector identifies the operation."""
     details = event['details']
     kind = event['kind']
     source = details.get('source')
+    if kind == 'web.navigation' and event['severity'] == 'info':
+        domain_id = audit_collection.domain_visit_id(device_id, event['occurred'], details)
+        if domain_id is not None:
+            # Also group older queued visits after the current policy redacts their URL.
+            return 'obs:' + domain_id
     windows_record = (source in ('windows_security', 'windows_applocker')
                       and type(details.get('record_id')) is int
                       and type(details.get('windows_event_id')) is int)
-    write_burst = (source == 'windows_etw_file_io' and kind == 'file.written'
-                   and details.get('aggregation') == 'completed_write_burst'
-                   and all(details.get(k) is not None for k in
-                           ('native_open_id', 'process_id', 'first_write_observed', 'last_write_observed')))
     upload = (source == 'browser_webrequest' and details.get('upload_id')
               and kind in ('web.upload_response', 'web.upload_failed', 'web.upload_interrupted'))
-    if windows_record or write_burst or upload:
-        evidence = [kind, event['severity'], event['occurred'], details]
-        return 'obs:' + hashlib.sha256(canonical(evidence).encode('utf-8')).hexdigest()
+    if windows_record or native_document_observation(kind, details) or upload:
+        return evidence_key(kind,event['severity'],event['occurred'],details)
     return 'id:' + event['event_id']
 
 
@@ -122,7 +151,7 @@ def prepare(db, rows, device_id):
     now = time.time()
     outgoing = []
     keys = {}
-    local_ids = []
+    local_keys = {}
     excluded_ids = []
     policy_packet = None
     db.execute('BEGIN IMMEDIATE')
@@ -151,9 +180,9 @@ def prepare(db, rows, device_id):
         if excluded_unconfirmed_write(event['kind'], event['severity'], event['details']):
             excluded_ids.append((local_id,))
             continue
-        local_ids.append((local_id,))
-        identity = observation(event)
+        identity = observation(event, device_id)
         key = canonical([device_id, identity])
+        local_keys[local_id] = key
         if key in keys:
             continue
         receipt = db.execute('SELECT wire_id,acknowledged FROM upload_receipts WHERE observation=?',
@@ -173,7 +202,7 @@ def prepare(db, rows, device_id):
     if excluded_ids:
         db.executemany('DELETE FROM outbox WHERE event_id=?', excluded_ids)
         db.executemany('DELETE FROM outbox_priority WHERE event_id=?', excluded_ids)
-    return outgoing, keys, local_ids
+    return outgoing, keys, local_keys
 
 
 def confirm(db, keys, accepted):

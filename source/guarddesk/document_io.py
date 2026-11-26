@@ -47,6 +47,7 @@ class CopyCorrelator:
         self.sent[key]={'seen':now}
         while len(self.sent)>2048:self.sent.popitem(last=False)
         self.emit({'path':source['path'],'source_path':source['path'],'destination_path':event['path'],'process_id':pid,'thread_id':event.get('tid'),
+                   'source_open_id':source.get('open_id',0),'native_open_id':event.get('open_id',0),
                    'source':'windows_etw_file_io','evidence':'completed_io_range_candidate','offset':offset,'matched_bytes':length,
                    'operation_confirmed':False,'content_compared':False,'coverage':'partial_range_not_whole_file','user':None},event.get('occurred',time.time()))
 

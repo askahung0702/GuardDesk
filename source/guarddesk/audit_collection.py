@@ -1,5 +1,6 @@
 """Policy for ordinary browser visits, file-upload evidence and process stops."""
 from urllib.parse import urlsplit
+from .serialization import canonical, digest
 
 FIELDS = {
     'browser_visit_detail': 'domain',
@@ -41,7 +42,6 @@ def validate(policy):
 
 
 def stop_signature(policy):
-    from .serialization import canonical, digest
     return digest(canonical([policy.get('application_stop_mode', 'all'), policy.get('application_stop_programs', [])]))
 
 
@@ -100,3 +100,14 @@ def domain_visit(details):
         return None
     fields = ('user', 'browser', 'source', 'coverage', 'reporting_account', 'user_session_id', 'collection_scope', 'clock_warning')
     return {**{key: details[key] for key in fields if key in details}, 'domain': domain.lower()}
+
+
+def domain_visit_id(device_id, occurred, details):
+    """A domain-only saved visit represents one second of activity on this endpoint."""
+    if (not device_id or details.get('source') != 'browser_history' or details.get('coverage') != 'saved_visit'
+            or any(key in details for key in ('url', 'title', 'visit_id', 'profile'))
+            or not all(isinstance(details.get(key), str) and details[key] for key in ('user', 'browser', 'domain'))):
+        return None
+    scope = {**details, 'user': details['user'].casefold(), 'browser': details['browser'].casefold(),
+             'domain': details['domain'].lower()}
+    return 'domain-visit-' + digest(canonical([device_id, int(occurred), scope]))

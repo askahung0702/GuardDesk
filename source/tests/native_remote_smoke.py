@@ -71,7 +71,10 @@ def run():
                 time.sleep(.01)
             raise AssertionError('Tk wait expired: '+app.status.get())
         wait(lambda:app.client is not None and not app.busy)
-        assert app.devices and app.device_box.current()==0
+        assert app.devices and app.selected_device() is None
+        app.device_query.set('simulated-windows')
+        app.select_device(did)
+        assert app.selected_device()['id']==did
         app.mode.set('檢視並控制');app.reason.set('Isolated native viewer acceptance test');app.request()
         wait(lambda:app.image is not None and app.engine and app.engine.session['status']=='active')
         engine=app.engine;started=time.monotonic();frames=engine.stats['frames'];gaps=[];last=started

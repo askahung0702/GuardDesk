@@ -3,6 +3,7 @@ import copy
 import json
 import math
 import os
+import socket
 import threading
 import time
 from . import __version__
@@ -132,6 +133,12 @@ class Router:
                 startup=remote_trial.session_diagnostics(self.agent.feature_status.get('machine_agent'))
                 if startup is not None:inventory['collectors']['remote_only_trial']['session_startup']=startup
             else:
+                # The authenticated machine coordinator owns the computer name.
+                inventory.pop('hostname', None)
+                try:
+                    inventory['hostname'] = socket.gethostname()
+                except OSError:
+                    pass
                 from .machine_service import enabled as full_service
                 if full_service():
                     # Protected coordinator owns this fixed scalar subtree;

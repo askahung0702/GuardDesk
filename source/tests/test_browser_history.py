@@ -58,7 +58,8 @@ class BrowserHistoryTest(unittest.TestCase):
         with self.agent.db() as db:
             return [json.loads(r[0]) for r in db.execute("SELECT payload FROM outbox WHERE json_extract(payload,'$.kind')='web.navigation'")]
 
-    def test_domain_mode_drops_sensitive_fields_before_persistence_and_retry(self):
+    @patch('time.time', return_value=1_750_000_000)
+    def test_domain_mode_drops_sensitive_fields_before_persistence_and_retry(self, clock):
         self.policy(True, 'domain')
         self.collector.poll()
         visit(self.history, 1, 'https://alice:secret@office.test/case/123?q=client#private', '客戶案件')
@@ -67,6 +68,7 @@ class BrowserHistoryTest(unittest.TestCase):
         self.assertEqual(set(details), {'domain','source','coverage','browser','user'})
         self.assertEqual(details['domain'], 'office.test')
         visit(self.history, 2, title='before scope changed')
+        clock.return_value += 0.25
         self.policy(True, 'detailed')
         self.collector.poll()
         self.assertNotIn('title', self.events()[-1]['details'])
@@ -80,8 +82,56 @@ class BrowserHistoryTest(unittest.TestCase):
             return {'accepted': [e['event_id'] for e in body['events']]}
         with patch.object(self.agent, 'call', acknowledge):
             self.agent.flush()
-        self.assertEqual(len(outgoing), 3)
+        self.assertCountEqual([e['details']['domain'] for e in outgoing], ['office.test', 'example.test'])
         self.assertTrue(all(set(e['details']) == set(details) for e in outgoing))
+
+    @patch('time.time', return_value=1_750_000_005)
+    def test_one_domain_row_per_occurrence_second_across_polls_profiles_and_restart(self, clock):
+        self.policy(True, 'domain')
+        self.collector.poll()
+        second = int(clock.return_value)
+        clock.return_value += 4
+        for ident, fraction in enumerate((.01, .2, .4, .99), 1):
+            visit(self.history, ident, f'https://docs.example.test/{ident}', occurred=second+fraction)
+        # Chromium stores integer microseconds; the final microsecond belongs to this second.
+        with history_db(self.history) as db:
+            db.execute('UPDATE visits SET visit_time=? WHERE id=4', (chrome_time(second+1)-1,))
+        self.collector.poll()
+        self.assertEqual(len(self.events()), 1)
+        self.assertEqual(self.agent.feature_status['browser_history']['profiles'][0]['queued'], 1)
+        original = self.events()[0]['event_id']
+        batches = []
+        def accept(path, body):
+            ids = [e['event_id'] for e in body['events']]
+            batches.append(ids)
+            return {'accepted': ids}
+        with patch.object(self.agent, 'call', accept):
+            self.agent.flush()
+            other = self.root/'Profile 2/History'
+            make_history(other)
+            visit(other, 1, 'https://docs.example.test/another', occurred=second+.5)
+            visit(other, 2, 'https://docs.example.test/next', occurred=second+1)
+            visit(other, 3, 'https://other.example.test/', occurred=second+.5)
+            with patch('guarddesk.browser_history.discover_profiles', return_value=([('chrome','Profile 2',other)],False)):
+                BrowserHistory(self.agent).poll()
+            self.assertIn(original, {e['event_id'] for e in self.events()})
+            self.agent.flush()
+        self.assertEqual([len(batch) for batch in batches], [1, 2])
+        # A separate endpoint can have the same Windows account and browser history.
+        other_config = self.root/'second-device'/'config.json'
+        other_config.parent.mkdir()
+        other_config.write_text(json.dumps({**self.agent.config, 'device_id':'second-fixture'}))
+        other_agent = Agent(other_config)
+        with other_agent.db() as db:
+            packet = {'version':1, 'body':{**DEFAULT_POLICY, 'browser_audit':True, 'browser_visit_detail':'domain'}}
+            db.execute("INSERT OR REPLACE INTO state VALUES ('policy',?)", (canonical(packet),))
+        clock.return_value = second
+        other_collector = BrowserHistory(other_agent)
+        other_collector.poll()
+        with patch.object(other_agent, 'call', accept):
+            other_agent.flush()
+        self.assertEqual(len(batches[-1]), 1)
+        self.assertNotEqual(batches[-1][0], original)
 
     def test_new_visits_repeat_restart_redaction_and_read_only(self):
         visit(self.history, 1, occurred=time.time()-600)
@@ -95,6 +145,9 @@ class BrowserHistoryTest(unittest.TestCase):
         self.assertNotIn('#fragment', canonical(events)); self.assertIn('q=review', canonical(events))
         self.assertEqual(hashlib.sha256(self.history.read_bytes()).hexdigest(), before)
         BrowserHistory(Agent(self.config)).poll(); self.assertEqual(len(self.events()), 2)
+        with patch.object(self.agent, 'call', return_value={'accepted':[e['event_id'] for e in events]}) as send:
+            self.assertEqual(self.agent.flush()['sent'], 2)
+        self.assertEqual({e['details']['visit_id'] for e in send.call_args.args[1]['events']}, {2, 3})
 
     def test_disabled_user_policy_and_no_backfill(self):
         self.collector.poll(); self.policy(False); self.collector.poll()

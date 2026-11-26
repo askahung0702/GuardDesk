@@ -11,6 +11,7 @@ import os
 import xml.etree.ElementTree as ET
 from .file_exclusions import excluded
 from .application_exclusions import excluded_application
+from .serialization import canonical, digest
 
 NS={'e':'http://schemas.microsoft.com/win/2004/08/events/event'}
 
@@ -110,6 +111,13 @@ class SecurityCollector:
             db.execute('DELETE FROM audit_handles WHERE record_id<?',(max(0,cursor-100000),))
         return {'cursor':cursor,'read':len(rows)}
 
+    def record_warning(self,db,event,kind,severity,details):
+        device_id=self.agent.config.get('device_id')
+        rid,eid,occurred=event['record_id'],event['event_id'],event['occurred']
+        identity=digest(canonical([device_id,'Security',eid,rid,occurred]))[:32] if device_id else None
+        self.agent.queue(kind,{**details,'source':'windows_security','record_id':rid,'windows_event_id':eid},
+                         severity,db=db,occurred=occurred,event_id=identity)
+
     def ingest(self,db,event,policy):
         d=event['data'];eid=event['event_id'];rid=event['record_id']
         if eid in (4688,4689):
@@ -133,14 +141,15 @@ class SecurityCollector:
         if eid!=1102 and (not policy['file_audit']['enabled'] or policy.get('_custom_skip_security_files')):return
         key='|'.join(d.get(n,'') for n in ('SubjectLogonId','ProcessId','HandleId'))
         if eid==1102:
-            self.agent.queue('agent.audit_log_cleared',{'record_id':rid},'critical',db=db);return
+            self.record_warning(db,event,'agent.audit_log_cleared','critical',{});return
         if eid==4658:
             db.execute('DELETE FROM audit_handles WHERE key=?',(key,));return
         path=d.get('ObjectName','')
         if eid==4660:
             old=db.execute('SELECT payload FROM audit_handles WHERE key=?',(key,)).fetchone()
             if not old:
-                self.agent.queue('agent.audit_unresolved_delete',{'record_id':rid,'process_id':d.get('ProcessId'),'user':d.get('SubjectUserName')},'warning',db=db)
+                self.record_warning(db,event,'agent.audit_unresolved_delete','warning',
+                                    {'process_id':d.get('ProcessId'),'user':d.get('SubjectUserName')})
                 return
             previous=json.loads(old[0])
             if previous.get('_excluded'):

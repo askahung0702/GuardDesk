@@ -16,7 +16,7 @@ from guarddesk import document_saves
 from guarddesk.agent import Agent, private_write
 from guarddesk.audit_reports import ACTIONS
 from guarddesk.file_exclusions import TMP_FILE_RULE, excluded_activity
-from guarddesk.windows_watch import DirectoryMonitor, FileIdMoves, RenamePairs, decode_extended
+from guarddesk.windows_watch import DirectoryMonitor, FileIdMoves, RenamePairs, consolidate_moves, decode_extended
 
 
 class DocumentSaveTest(unittest.TestCase):
@@ -54,7 +54,7 @@ class DocumentSaveTest(unittest.TestCase):
             decoded.extend(decode_extended(header+encoded))
         pairs = self.pairs.consume([(a,p,attrs,ref,size) for a,p,ref,attrs,size in decoded],now=when)
         moves = self.moves.consume([(a,p,ref,attrs) for a,p,ref,attrs,size in decoded],now=when)
-        for kind,details in pairs+moves:
+        for kind,details in consolidate_moves(pairs+moves):
             details.pop('_path_attributes',None)
             self.agent.queue(kind,{**details,'source':'ReadDirectoryChangesW'},occurred=when)
 
@@ -63,6 +63,15 @@ class DocumentSaveTest(unittest.TestCase):
             'source':'windows_etw_file_io','path':path,'process_id':171,'process_created':12,
             'process_identity_status':'creation_time_checked','process':program,
             'written_bytes':14001,'user':None},**changes),occurred=when)
+
+    def test_same_buffer_file_id_move_once_and_ambiguous_names_kept(self):
+        src,dst=self.folder+r'\a.txt',self.folder+r'\archive\a.txt'
+        self.notify(100,(2,src,31,10),(1,dst,31,10))
+        self.assertEqual(self.drain(),[('file.moved',src)])
+        self.assertEqual(self.received[0]['details']['destination_path'],dst)
+        self.received.clear()
+        self.notify(101,(2,src,32,10),(1,dst,33,10))
+        self.assertCountEqual(self.drain(),[('file.deleted',src),('file.created',dst)])
 
     def swap(self, final, stage, backup, new=False, cleanup=True, process='editor.exe', placeholder_bytes=0):
         if new:

@@ -8,12 +8,17 @@ from tkinter import ttk
 
 from .remote_client import RemoteClient, ViewerEngine, viewport, pointer
 from .remote_codec import KEYS
+from .remote_readiness import label as readiness_label
+
+
+DEVICE_RESULT_LIMIT = 30
 
 
 class RemoteViewer:
     def __init__(self,root,server='http://127.0.0.1:8788',*,workstation=False,ca=None,tray=False):
         self.tk,self.ttk,self.root=tk,ttk,root
-        self.client=None;self.engine=None;self.username='';self.catalog_data={};self.devices=[]
+        self.client=None;self.engine=None;self.username='';self.catalog_data={};self.devices={}
+        self.selected_device_id = None
         self.tray=None;self.hidden=False
         self.native_root=None;self.native_cohort=None
         try:
@@ -39,7 +44,7 @@ class RemoteViewer:
         style.configure('TEntry',padding=5)
         self.status=tk.StringVar(value='請以 MIS／授權支援帳號登入公司 Server' if workstation else '請以 MIS／授權支援帳號登入 Server 本機管理中心')
         self.server=tk.StringVar(value=server);self.user=tk.StringVar();self.password=tk.StringVar()
-        self.device=tk.StringVar();self.mode=tk.StringVar(value='僅檢視');self.quality=tk.StringVar(value='清晰 · 原始解析度／最高 2 FPS')
+        self.mode=tk.StringVar(value='僅檢視');self.quality=tk.StringVar(value='清晰 · 原始解析度／最高 2 FPS')
         self.display=tk.StringVar(value='符合視窗')
         self.reason=tk.StringVar();self.metric=tk.StringVar(value='未連線')
         self.header=tk.Frame(root,bg='#15353d',height=68);self.header.pack(fill='x');self.header.pack_propagate(False)
@@ -117,9 +122,8 @@ class RemoteViewer:
         ttk.Button(top,text='登出',command=self.logout).pack(side='right')
         ttk.Label(top,text=self.username+'  ·  '+self.client.server,foreground='#647780').pack(side='right',padx=20)
         controls=ttk.Frame(self.body);controls.pack(fill='x')
-        for column,text in enumerate(['端點','操作模式','傳輸模式','協助原因（選填）']):ttk.Label(controls,text=text).grid(row=0,column=column,sticky='w',padx=(0,10))
-        self.device_box=ttk.Combobox(controls,textvariable=self.device,state='readonly',width=29)
-        self.device_box.grid(row=1,column=0,sticky='ew',padx=(0,12),pady=(6,12));self.device_box.bind('<<ComboboxSelected>>',lambda event:self.selection_changed())
+        for column,text in enumerate(['搜尋端點','操作模式','傳輸模式','協助原因（選填）']):ttk.Label(controls,text=text).grid(row=0,column=column,sticky='w',padx=(0,10))
+        self.build_device_search(controls)
         self.mode_box=ttk.Combobox(controls,textvariable=self.mode,state='readonly',values=['僅檢視','檢視並控制'],width=14);self.mode_box.grid(row=1,column=1,padx=(0,12))
         choices=['順暢 · 最高 8 FPS','省流量 · 最高 3 FPS']
         if self.catalog_data.get('clarity_protocol',0)>=3:choices.insert(0,'清晰 · 原始解析度／最高 2 FPS')
@@ -129,7 +133,7 @@ class RemoteViewer:
         self.quality_box.grid(row=1,column=2,padx=(0,12))
         ttk.Entry(controls,textvariable=self.reason,width=26).grid(row=1,column=3,sticky='ew');controls.columnconfigure(3,weight=1)
         actions=ttk.Frame(self.body);actions.pack(fill='x',pady=(0,12))
-        self.connect_button=ttk.Button(actions,text='要求使用者確認',command=self.request);self.connect_button.pack(side='left')
+        self.connect_button=ttk.Button(actions,text='要求使用者確認',command=self.request,state='disabled');self.connect_button.pack(side='left')
         self.stop_button=ttk.Button(actions,text='停止協助',command=self.stop_session,state='disabled');self.stop_button.pack(side='left',padx=10)
         self.refresh_button=ttk.Button(actions,text='更新端點狀態',command=self.refresh);self.refresh_button.pack(side='left')
         self.fullscreen_button=ttk.Button(actions,text='全螢幕／還原',command=self.toggle_fullscreen);self.fullscreen_button.pack(side='right')
@@ -165,18 +169,133 @@ class RemoteViewer:
         ttk.Label(self.body,text='版本相符的新版端點預設原生即時，請在獨立影像視窗操作；可按「操作遠端視窗」帶起。清晰模式保留原解析度（最高 4K），更新較慢。\n原生一般協助遇 UAC 暫停；管理員協助經授權與同意後可操作 UAC。舊傳輸的一般協助遇 UAC 會結束。\nCtrl+Alt+Shift+F12 切換放大／還原。原生協助持續至停止或授權中止；鎖定／登出都停止。舊圖片傳輸仍最長 10 分鐘。',foreground='#647780').pack(fill='x',pady=(10,0))
         self.display_changed();self.update_devices();self.status.set('僅顯示此帳號已取得單台或全部端點授權的端點；每次連線仍須使用者同意。')
 
+    def build_device_search(self, controls):
+        self.selected_device_id = None
+        self.device_query = tk.StringVar(master=controls)
+        self.device_hint = tk.StringVar(master=controls)
+        self.device_entry = ttk.Entry(controls, textvariable=self.device_query, width=29)
+        self.device_entry.grid(row=1, column=0, sticky='ew', padx=(0,12), pady=(6,8))
+        ttk.Label(controls, textvariable=self.device_hint, foreground='#526b76').grid(
+            row=2, column=0, columnspan=4, sticky='w', pady=(0,8))
+        self.device_results_frame = ttk.Frame(controls)
+        self.device_results_frame.grid(row=3, column=0, columnspan=4, sticky='ew', pady=(0,10))
+        columns = [('computer','電腦名稱',160), ('account','登入帳號',165), ('readiness','連線狀態',245), ('device','端點 ID',185)]
+        self.device_results = ttk.Treeview(self.device_results_frame, columns=[key for key, _, _ in columns],
+                                           show='headings', height=5, selectmode='browse')
+        for key, title, width in columns:
+            self.device_results.heading(key, text=title)
+            self.device_results.column(key, width=width)
+        self.device_results.pack(side='left', fill='x', expand=True)
+        scrollbar = ttk.Scrollbar(self.device_results_frame, orient='vertical', command=self.device_results.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.device_results.configure(yscrollcommand=scrollbar.set)
+        self.device_results_frame.grid_remove()
+        self.device_query.trace_add('write', self.device_query_changed)
+        for key in ('<Down>', '<Return>'):
+            self.device_entry.bind(key, self.focus_device_results)
+        self.device_results.bind('<ButtonRelease-1>', self.pick_device_row)
+        self.device_results.bind('<Return>', lambda event: self.select_device(self.device_results.focus()))
+
+    def device_query_changed(self, *_):
+        device = self.selected_device()
+        if device and self.device_query.get() == device['name']:
+            return
+        self.selected_device_id = None
+        self.show_device_results()
+        self.selection_changed()
+
+    def show_device_results(self):
+        device = self.selected_device()
+        query = self.device_query.get().strip().casefold()
+        tree = self.device_results
+        focused = tree.focus()
+        children = tree.get_children()
+        if children:
+            tree.delete(*children)
+        self.device_results_frame.grid_remove()
+        if device:
+            selected = [device['name'], device.get('account'), readiness_label(device), device['id']]
+            self.device_hint.set('已選擇 '+' · '.join(part for part in selected if part))
+            return
+        if not query:
+            self.device_hint.set('輸入電腦名稱、登入帳號或端點 ID' if self.devices else '沒有已授權端點')
+            return
+        now = time.time()
+        matches = []
+        for row in self.devices.values():
+            if row['grant']['expires'] <= now:
+                continue
+            name, device_id = row['name'].casefold(), row['id'].casefold()
+            account = (row.get('account') or '').casefold()
+            registered_name = (row.get('registered_name') or '').casefold()
+            if any(query in field for field in (name, account, device_id, registered_name)):
+                rank = 0 if query in (name, device_id) else 1 if name.startswith(query) else 2
+                matches.append((rank, row))
+        if not matches:
+            self.device_hint.set('沒有符合的已授權端點')
+        else:
+            matches.sort(key=lambda match: match[0])
+            for _, row in matches[:DEVICE_RESULT_LIMIT]:
+                tree.insert('', 'end', iid=row['id'], values=(
+                    row['name'], row.get('account') or '—', readiness_label(row), row['id']))
+            if focused and tree.exists(focused):
+                tree.focus(focused)
+                tree.selection_set(focused)
+                tree.see(focused)
+            total = len(matches)
+            self.device_hint.set(f'找到 {total} 台，請選擇端點' if total <= DEVICE_RESULT_LIMIT
+                                 else f'找到 {total} 台，顯示前 {DEVICE_RESULT_LIMIT} 台。可繼續輸入縮小範圍。')
+            self.device_results_frame.grid()
+
+    def focus_device_results(self, event=None):
+        tree = self.device_results
+        children = tree.get_children()
+        if children:
+            first = tree.focus() or children[0]
+            tree.focus_set()
+            tree.focus(first)
+            tree.selection_set(first)
+            tree.see(first)
+        return 'break'
+
+    def pick_device_row(self, event):
+        if self.device_results.identify_region(event.x, event.y) == 'cell':
+            return self.select_device(self.device_results.identify_row(event.y))
+
+    def select_device(self, device_id):
+        device = self.devices.get(device_id)
+        if not self.engine and device and self.device_results.exists(device_id) and device['grant']['expires'] > time.time():
+            self.selected_device_id = device_id
+            self.device_query.set(device['name'])
+            self.show_device_results()
+            self.selection_changed()
+            self.device_entry.focus_set()
+            self.device_entry.selection_range(0, 'end')
+        return 'break'
+
+    def selected_device(self):
+        device = self.devices.get(self.selected_device_id)
+        return device if device and device['grant']['expires'] > time.time() else None
+
     def update_devices(self):
-        grants={g['device_id']:g for g in self.catalog_data.get('grants',[]) if g['username']==self.username and g['expires']>time.time()}
-        self.devices=[{**d,'grant':grants[d['id']]} for d in self.catalog_data.get('devices',[]) if d['id'] in grants]
-        from .remote_readiness import label
-        labels=[d['name']+' · '+label(d) for d in self.devices]
-        selected=self.device_box.current();self.device_box.configure(values=labels)
-        if labels:self.device_box.current(min(max(0,selected),len(labels)-1))
-        else:self.device.set('沒有已授權端點')
+        now = time.time()
+        grants = {g['device_id']:g for g in self.catalog_data.get('grants',[])
+                  if g['username'] == self.username and g['expires'] > now}
+        devices = (d for d in self.catalog_data.get('devices',[]) if d['id'] in grants)
+        self.devices = {d['id']:{**d,'grant':grants[d['id']]}
+                        for d in sorted(devices, key=lambda d:(d['name'].casefold(), d['id']))}
+        device = self.selected_device()
+        if device is None:
+            if self.selected_device_id is not None:
+                self.status.set('原先選取的端點已不在授權清單中，請重新選擇。')
+            self.selected_device_id = None
+        elif self.device_query.get() != device['name']:
+            self.device_query.set(device['name'])
+        self.show_device_results()
         self.selection_changed()
 
     def selection_changed(self):
-        index=self.device_box.current();d=self.devices[index] if 0<=index<len(self.devices) else None
+        d=self.selected_device()
         allowed=['僅檢視','檢視並控制'] if d and d['grant']['can_control'] else ['僅檢視']
         if d and d['grant'].get('can_elevate') and (d.get('protocol') or 1)>=6 and self.catalog_data.get('admin_protocol',0)>=6:
             allowed.append('管理員協助（含 UAC）')
@@ -193,13 +312,13 @@ class RemoteViewer:
         ready=bool(d and d['ready'] and (d.get('protocol') or 1)>=2 and (not native_only or choices))
         self.connect_button.configure(state='normal' if ready and self.engine is None and not self.busy else 'disabled')
         if d and not ready and self.engine is None and not self.busy:
-            from .remote_readiness import label
-            self.status.set('遠端未就緒：'+label(d)+'。電腦上線不代表登入桌面已回報。')
+            self.status.set('遠端未就緒：'+readiness_label(d)+'。電腦上線不代表登入桌面已回報。')
+        return ready
 
     def refresh(self):
         if not self.client or self.engine or self.busy:return
         def done(result,error):
-            if error:self.status.set(error);return
+            if error:self.selection_changed();self.status.set(error);return
             self.catalog_data=result;self.update_devices()
         self.background(self.client.catalog,done)
 
@@ -209,16 +328,17 @@ class RemoteViewer:
 
     def request(self):
         if self.engine or self.busy:return
-        index=self.device_box.current()
-        if not 0<=index<len(self.devices):return
+        d=self.selected_device()
+        if not d or not self.selection_changed():return
         reason=self.reason.get().strip()
         if len(reason)>200 or any(ord(c)<32 for c in reason):self.status.set('協助原因最多 200 字，可留空');return
-        d=self.devices[index];admin_control=self.mode.get()=='管理員協助（含 UAC）';mode='control' if admin_control or self.mode.get()=='檢視並控制' else 'view'
+        admin_control=self.mode.get()=='管理員協助（含 UAC）';mode='control' if admin_control or self.mode.get()=='檢視並控制' else 'view'
         native=self.quality.get().startswith('原生即時')
         if native and (not self.native_root or not d.get('native') or (admin_control and not d['native'].get('secure_desktop'))):
             self.status.set('此原生元件尚未提供所選協助能力，請重新選擇模式。');return
         quality='clarity' if self.quality.get().startswith('清晰') else 'economy' if self.quality.get().startswith('省流量') else 'balanced'
         self.connect_button.configure(state='disabled');self.status.set('正在要求端點使用者確認…')
+        self.device_entry.configure(state='disabled')
         client=self.client
         def work():
             if native:
@@ -231,7 +351,10 @@ class RemoteViewer:
             if self.closing.is_set():client.call('/api/remote/stop',{'session_id':session['id']});return None
             return session
         def done(result,error):
-            if error:self.status.set(error);self.selection_changed();return
+            if error:
+                self.device_entry.configure(state='normal')
+                self.selection_changed();self.status.set(error)
+                return
             self.finished=False
             if native:
                 if self.fullscreen:self._toggle_canvas_fullscreen()
@@ -241,14 +364,17 @@ class RemoteViewer:
             try:self.engine.start()
             except (OSError,RuntimeError,ValueError):
                 self.engine.stop();self.engine=None
+                self.device_entry.configure(state='normal')
                 self.status.set('原生工作仍在結束，暫時無法建立新的協助。')
                 self.selection_changed()
                 self.background(lambda:client.call('/api/remote/stop',{'session_id':result['id']}),lambda _result,_error:self.selection_changed())
                 return
-            self.device_box.configure(state='disabled');self.mode_box.configure(state='disabled')
+            self.mode_box.configure(state='disabled')
             self.quality_box.configure(state='disabled')
             self.stop_button.configure(state='normal');self.canvas.itemconfigure(self.message_item,text='等待端點使用者同意…')
-        self.background(work,done)
+        if not self.background(work,done):
+            self.device_entry.configure(state='normal')
+            self.selection_changed()
 
     def show_native_diagnostics(self):
         import json
@@ -289,7 +415,7 @@ class RemoteViewer:
         if actions is not None and actions.winfo_exists():actions.pack_forget()
         self.clear_frame();self.metric.set('未連線');self.status.set('協助已停止；已停止傳送輸入。')
         if hasattr(self,'stop_button') and self.stop_button.winfo_exists():
-            self.stop_button.configure(state='disabled');self.device_box.configure(state='readonly');self.mode_box.configure(state='readonly');self.quality_box.configure(state='readonly');self.selection_changed()
+            self.stop_button.configure(state='disabled');self.device_entry.configure(state='normal');self.mode_box.configure(state='readonly');self.quality_box.configure(state='readonly');self.selection_changed()
 
     def render(self):
         if not self.image or self.closing.is_set():return

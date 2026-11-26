@@ -104,10 +104,16 @@ class MachineAgentTest(MachineFixture):
             run(self.config,threading.Event())
 
     def test_heartbeat_preserves_computer_and_exposes_both_sessions(self):
-        self.dispatch('/api/agent/heartbeat',{'inventory':{'agent_account':'forged','agent_version':'0.4.64'}})
+        payload={'inventory':{'agent_account':'forged','agent_version':'0.4.64','hostname':'FORGED'}}
+        with patch('guarddesk.machine_agent.socket.gethostname',return_value='OWNED-PC'):
+            self.dispatch('/api/agent/heartbeat',payload)
         inventory=self.calls[-1][1]['inventory']
         self.assertEqual(inventory['agent_account'],'EXAMPLE\\A')
+        self.assertEqual(inventory['hostname'],'OWNED-PC')
         self.assertEqual([s['user'] for s in inventory['machine_agent']['sessions']],['EXAMPLE\\A','EXAMPLE\\B'])
+        with patch('guarddesk.machine_agent.socket.gethostname',side_effect=OSError):
+            self.dispatch('/api/agent/heartbeat',payload)
+        self.assertNotIn('hostname',self.calls[-1][1]['inventory'])
 
     def test_remote_consent_and_frames_never_transfer_to_B_or_reused_session(self):
         self.states[2]['active']=False

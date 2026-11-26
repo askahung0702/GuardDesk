@@ -199,11 +199,11 @@ class BrowserHistory:
                 ' WHERE ' + where + ' AND ' + remote + 'v.visit_time>=?' + local +
                 ' ORDER BY v.id LIMIT ?', (*title_args, value, chrome_time(cursor['since']), BATCH)).fetchall()
         from .browser_host import sanitize_url
-        from .audit_collection import domain_visit
+        from .audit_collection import domain_visit, domain_visit_id
         count = 0
         with self.agent.db() as db:
             for visit_id, timestamp, url, title, transition in rows:
-                occurred = timestamp / 1_000_000 - EPOCH
+                occurred = (timestamp - EPOCH * 1_000_000) / 1_000_000
                 cursor.update(last_id=visit_id, anchor_time=timestamp)
                 cursor['last_time'] = max(cursor.get('last_time', cursor['since']), occurred)
                 # Exclude subframes and generated keyword result visits.
@@ -223,9 +223,13 @@ class BrowserHistory:
                     details = domain_visit(details)
                     if details is None:
                         continue
-                eid = 'history-' + hashlib.sha256((identity + cursor['generation'] + str(visit_id)).encode()).hexdigest()
+                eid = domain_visit_id(self.agent.config.get('device_id'), occurred, details)
+                if eid is None:
+                    eid = 'history-' + hashlib.sha256((identity + cursor['generation'] + str(visit_id)).encode()).hexdigest()
+                before = db.total_changes
                 self.agent.queue('web.navigation', details, occurred=occurred, event_id=eid, db=db)
-                count += 1
+                if db.total_changes > before:
+                    count += 1
             db.execute('INSERT OR REPLACE INTO state VALUES (?,?)', (key, canonical(cursor)))
         return {'status': 'collecting', 'last_poll': time.time(), 'queued': count, 'more': len(rows) == BATCH,
                 'database_reset': reset, 'last_visit_time': cursor.get('last_time')}

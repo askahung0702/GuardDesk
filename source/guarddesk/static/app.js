@@ -11,7 +11,7 @@ const fileAccessPrefix='@guarddesk:file-access:v1:',fileAccessProcess=fileAccess
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels = {overview:'安全總覽',devices:'端點裝置',policy:'安全策略',audit:'稽核事件',coverage:'功能與範圍',updates:'Agent 集中更新',software:'MSI 軟體派送'};
-const kinds = {'device.enrolled':'端點完成註冊','device.revoked':'端點已撤銷','device.heartbeat_mode':'端點心跳模式切換','policy.published':'安全策略已發布','policy.applied':'端點回報策略版本','admin.login':'管理員登入','enrollment.created':'建立端點註冊碼','file.created':'發現新檔案','file.modified':'檔案內容或屬性變更（歷史）','file.deleted':'檔案已刪除','agent.started':'Agent 啟動','agent.scan_partial':'檔案掃描未完整','export.requested':'受控外發已提出','export.completed':'受控外發已完成','export.blocked':'策略已阻擋受控外發','export.failed':'受控外發寫入失敗'};
+const kinds = {'device.enrolled':'端點完成註冊','device.hostname_changed':'端點電腦名稱變更','device.revoked':'端點已撤銷','device.heartbeat_mode':'端點心跳模式切換','policy.published':'安全策略已發布','policy.applied':'端點回報策略版本','admin.login':'管理員登入','enrollment.created':'建立端點註冊碼','file.created':'發現新檔案','file.modified':'檔案內容或屬性變更（歷史）','file.deleted':'檔案已刪除','agent.started':'Agent 啟動','agent.scan_partial':'檔案掃描未完整','export.requested':'受控外發已提出','export.completed':'受控外發已完成','export.blocked':'策略已阻擋受控外發','export.failed':'受控外發寫入失敗'};
 Object.assign(kinds,{'file.copy_candidate':'可能複製（讀寫關聯）','file.opened':'檔案存取（程序開啟／讀取）','file.open_requested':'檔案開啟請求','file.delete_requested':'檔案刪除請求','file.rename_from':'檔案重新命名前','file.rename_to':'檔案重新命名後','web.navigation':'網站瀏覽紀錄','network.upload':'網站傳出流量','network.proxy_error':'網站代理錯誤','agent.controls_status':'端點控制套用狀態','agent.audit_gap':'檔案稽核缺漏警示','agent.audit_unavailable':'Windows 稽核無法讀取','agent.audit_watch_failed':'原生目錄監看失敗','agent.audit_unresolved_delete':'無法還原刪除檔名'});
 let user, state, events = {items:[],total:0}, page = 'overview', offset = 0, search = '', severity = '', busy = false, toastTimer;
 const date = t => new Date(t * 1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
@@ -99,7 +99,7 @@ function endpointSearchEntries(devices,activeOnly=false){
   const normalize=value=>String(value||'').trim().normalize('NFKC').toLowerCase();
   for(const d of available){const key=normalize(d.name);names.set(key,(names.get(key)||0)+1);}
   return available.map(d=>({id:d.id,name:d.name,value:names.get(normalize(d.name))>1?`${d.name} [${d.id}]`:d.name,
-    search:normalize([d.name,d.id].join(' '))}));
+    search:normalize([d.name,d.registered_name,d.id].join(' '))}));
 }
 function endpointSearchMatches(entries,text,limit=20){
   const query=String(text||'').trim().normalize('NFKC').toLowerCase().slice(0,200);

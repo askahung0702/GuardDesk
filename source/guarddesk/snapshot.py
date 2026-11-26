@@ -12,6 +12,7 @@ from .file_exclusions import excluded
 class Snapshot:
     def __init__(self,agent,exclude_paths=()):
         self.agent=agent;self.errors=[];self.error_count=0;self.files=0;self.phase='walk'
+        self.error_digest_sum=0
         self.exclude_paths=list(exclude_paths)
         self.entries=self.walk(agent.root)
         with agent.db() as db:
@@ -20,8 +21,24 @@ class Snapshot:
             self.rebaseline=bool(db.execute("SELECT 1 FROM state WHERE key='snapshot_rebaseline'").fetchone())
 
     def error(self,error):
+        # Directory enumeration order can change between scans. Accumulate each
+        # error, including repeated ones, without retaining an unbounded list.
+        message=str(error)
+        item=hashlib.sha256(message.encode('utf-8',errors='surrogatepass')).digest()
+        self.error_digest_sum=(self.error_digest_sum+int.from_bytes(item,'big')) % (1<<256)
         self.error_count+=1
-        if len(self.errors)<5:self.errors.append(str(error)[:200])
+        if len(self.errors)<5:self.errors.append(message[:200])
+
+    def report_completion(self,db):
+        if not self.error_count:
+            db.execute("DELETE FROM state WHERE key='snapshot_last_failure'")
+            return
+        signature=f'{self.error_count}:{self.error_digest_sum:064x}'
+        changed=db.execute("INSERT INTO state(key,value) VALUES ('snapshot_last_failure',?) "
+                           "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE state.value<>excluded.value",
+                           (signature,)).rowcount
+        if changed:
+            self.agent.queue('agent.scan_partial',{'errors':self.errors,'error_count':self.error_count},'warning',db=db)
 
     def walk(self,root,depth=0):
         if excluded(str(root),self.exclude_paths,directory=True):return
@@ -99,7 +116,7 @@ class Snapshot:
                     break
             if complete and self.rebaseline and not self.error_count:
                 db.execute("DELETE FROM state WHERE key='snapshot_rebaseline'")
-            if complete and self.error_count:self.agent.queue('agent.scan_partial',{'errors':self.errors,'error_count':self.error_count},'warning',db=db)
+            if complete:self.report_completion(db)
         return {'files':self.files,'partial':bool(self.error_count),'in_progress':not complete,'entries_this_slice':processed,'slice_ms':round((time.monotonic()-started)*1000,2)}
 
     def close(self):self.entries.close()

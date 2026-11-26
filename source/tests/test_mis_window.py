@@ -4,7 +4,7 @@ from ctypes import wintypes as w
 from types import SimpleNamespace
 from unittest.mock import Mock,patch
 from guarddesk import mis_window
-from guarddesk.remote_viewer import RemoteViewer
+from guarddesk.remote_viewer import DEVICE_RESULT_LIMIT, RemoteViewer
 
 class User:
     def __init__(self):
@@ -58,6 +58,116 @@ class ShellRoutingTest(unittest.TestCase):
     def test_native_window_unavailable_is_not_claimed_ready(self):
         app=RemoteViewer.__new__(RemoteViewer);app.engine=SimpleNamespace(native_media=True,activate_window=Mock(return_value=False));app.status=Mock()
         self.assertFalse(app.activate_native_window());self.assertIn('仍在建立',app.status.set.call_args.args[0])
+
+class EndpointSearchTest(unittest.TestCase):
+    def setUp(self):
+        self.app = app = RemoteViewer.__new__(RemoteViewer)
+        app.engine = app.native_root = app.selected_device_id = None
+        app.busy = False
+        app.closing = Mock()
+        app.closing.is_set.return_value = False
+        app.username = 'operator'
+        app.devices = {}
+        for name in ('device_results','device_results_frame','device_entry','device_query','device_hint',
+                     'mode_box','quality_box','connect_button','status','reason','mode','quality','background','client'):
+            setattr(app, name, Mock())
+        self.rows = {}
+        app.device_results.get_children.side_effect = lambda: tuple(self.rows)
+        app.device_results.delete.side_effect = lambda *ids: self.rows.clear()
+        app.device_results.insert.side_effect = lambda *args, iid, values: self.rows.update({iid:values})
+        app.device_results.exists.side_effect = self.rows.__contains__
+        app.device_results.focus.return_value = ''
+        app.device_query.get.return_value = ''
+        app.device_query.set.side_effect = self.search
+        app.reason.get.return_value = ''
+        app.mode.get.return_value = '僅檢視'
+        app.quality.get.return_value = '順暢 · 最高 8 FPS'
+        clock = patch('guarddesk.remote_viewer.time.time', return_value=10)
+        self.now = clock.start()
+        self.addCleanup(clock.stop)
+
+    @staticmethod
+    def endpoint(number, name, account=None, **changes):
+        return {'id':f'{number:024x}','name':name,'account':account,'ready':True,'protocol':6,**changes}
+
+    def load_catalog(self, rows, *, absent=(), expired=()):
+        grants = [{'device_id':row['id'],'username':'other' if index in absent else 'operator',
+                   'expires':9 if index in expired else 20,'can_control':False}
+                  for index, row in enumerate(rows)]
+        self.app.catalog_data = {'devices':rows,'grants':grants}
+        self.app.update_devices()
+
+    def search(self, text):
+        self.app.device_query.get.return_value = text
+        self.app.device_query_changed()
+        return tuple(self.rows)
+
+    def test_search_limits_results_and_only_matches_authorized_devices(self):
+        rows = [self.endpoint(i,f'PC-{i:03}') for i in range(40)]
+        chosen = self.endpoint(90,'PC',r'EXAMPLE\測試員',registered_name='OLD-LABEL')
+        hidden = self.endpoint(91,'Hidden',r'EXAMPLE\測試員')
+        expired = self.endpoint(92,'Expired',r'EXAMPLE\測試員')
+        self.load_catalog([*rows,chosen,hidden,expired],absent=(41,),expired=(42,))
+        self.assertFalse(self.rows)
+        matches = self.search(' pC ')
+        self.assertEqual(len(matches), DEVICE_RESULT_LIMIT)
+        self.assertEqual(matches[0], chosen['id'])
+        self.assertIn('41', self.app.device_hint.set.call_args.args[0])
+        self.assertEqual(self.search(r'example\測'), (chosen['id'],))
+        self.assertEqual(self.search(chosen['id']), (chosen['id'],))
+        self.assertEqual(self.search('old-label'), (chosen['id'],))
+        self.assertEqual(self.search('hidden'), ())
+        self.assertEqual(self.search('expired'), ())
+
+    def test_keyboard_focus_and_exact_text_require_explicit_selection(self):
+        row = self.endpoint(1,'DEV-01')
+        self.load_catalog([row])
+        self.search('DEV-01')
+        self.assertEqual(self.app.focus_device_results(), 'break')
+        self.app.device_results.selection_set.assert_called_with(row['id'])
+        self.app.request()
+        self.app.background.assert_not_called()
+        self.app.select_device(row['id'])
+        self.assertEqual(self.app.selected_device()['id'], row['id'])
+        self.app.request()
+        work, done = self.app.background.call_args.args
+        self.app.device_entry.configure.assert_called_with(state='disabled')
+        work()
+        self.app.client.request.assert_called_once_with(row['id'],'view','','balanced')
+        done(None,'fixture failure')
+        self.app.device_entry.configure.assert_called_with(state='normal')
+
+    def test_catalog_refresh_keeps_same_id_and_never_picks_same_name_replacement(self):
+        first, second = self.endpoint(1,'DEV'), self.endpoint(2,'DEV')
+        self.load_catalog([first,second])
+        self.assertEqual(self.search('dev'), (first['id'],second['id']))
+        self.app.select_device(second['id'])
+        self.load_catalog([{**second,'name':'DEV NEW'},first])
+        self.assertEqual(self.app.selected_device()['id'],second['id'])
+        self.assertEqual(self.app.device_query.get(),'DEV NEW')
+        self.load_catalog([{**first,'name':'DEV NEW'}])
+        self.assertIsNone(self.app.selected_device())
+        self.assertEqual(tuple(self.rows), (first['id'],))
+        self.app.request()
+        self.app.background.assert_not_called()
+
+    def test_editing_search_unselects_and_unready_or_expired_device_cannot_connect(self):
+        row = self.endpoint(1,'DEV-01')
+        self.load_catalog([row])
+        self.search('DEV')
+        self.app.select_device(row['id'])
+        self.assertIsNotNone(self.app.selected_device())
+        self.search('DEV-')
+        self.assertIsNone(self.app.selected_device())
+        self.load_catalog([{**row,'ready':False}])
+        self.app.select_device(row['id'])
+        self.app.connect_button.configure.assert_called_with(state='disabled')
+        self.app.request()
+        self.now.return_value = 20
+        self.assertIsNone(self.app.selected_device())
+        self.app.request()
+        self.app.background.assert_not_called()
+
 
 @unittest.skipUnless(os.name=='nt','Windows metadata only')
 class OwnedMetadataTest(unittest.TestCase):

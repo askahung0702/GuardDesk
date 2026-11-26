@@ -93,6 +93,7 @@ class Agent:
         from .performance import ProcessSampler
         self._process_sampler=ProcessSampler()
         self._opener=None
+        self._inventory_upload=InventoryUpload()
         self._qos_verified=False
         self._upload_schedule = None
         with self.db() as db:
@@ -126,7 +127,7 @@ class Agent:
             db.execute("DELETE FROM state WHERE key='heartbeat_only'")
             db.execute("INSERT OR REPLACE INTO state VALUES ('resume_since',?)",(str(time.time()),))
             db.execute("INSERT OR REPLACE INTO state VALUES ('snapshot_rebaseline','1')")
-            db.execute("DELETE FROM state WHERE key IN ('security_cursor','browser_history_session') OR key LIKE 'applocker_cursor_%'")
+            db.execute("DELETE FROM state WHERE key IN ('security_cursor','browser_history_session','snapshot_last_failure') OR key LIKE 'applocker_cursor_%'")
         self.idle_revision=revision
 
     @contextmanager
@@ -164,7 +165,11 @@ class Agent:
             session=self.config['machine_session']
             return machine_request(path,body,timeout=timeout,parent=session['parent'],generation=session['generation'])
         if self._opener is None:self._opener=transport(self.config['server'],self.config.get('ca'))
-        return request(self.config["server"], path, body, self.config["token"], self.config.get("ca"),opener=self._opener,timeout=timeout)
+        def post(data):
+            return request(self.config["server"], path, data, self.config["token"], self.config.get("ca"),opener=self._opener,timeout=timeout)
+        if path=='/api/agent/heartbeat' and isinstance(body.get('inventory'),dict) and 'software' in body['inventory']:
+            return self._inventory_upload.send(post,body)
+        return post(body)
 
     @contextmanager
     def wal_session(self):
@@ -407,19 +412,28 @@ class Agent:
                     if pending and require_empty:
                         continue
                     return {'sent':sent,'pending':pending}
-                outgoing, keys, local_ids = event_upload.prepare(db, rows, self.config.get('device_id'))
+                outgoing, keys, local_keys = event_upload.prepare(db, rows, self.config.get('device_id'))
             expected = {event['event_id'] for event in outgoing}
+            confirmed = set()
             if outgoing:
                 result = self.call("/api/agent/events", {"events": outgoing})
                 accepted = result.get('accepted') if isinstance(result, dict) else None
-                if (not isinstance(accepted, list) or len(accepted) != len(expected)
-                        or not all(isinstance(eid, str) for eid in accepted) or set(accepted) != expected):
-                    raise ConnectionError("管理中心未完整確認事件")
+                if (not isinstance(accepted,list) or len(accepted)>len(expected)
+                        or not all(isinstance(eid,str) for eid in accepted)):
+                    raise ConnectionError("管理中心事件回覆格式不正確")
+                confirmed=set(accepted)
+                if len(confirmed)!=len(accepted) or not confirmed.issubset(expected):
+                    raise ConnectionError("管理中心事件回覆包含未知或重複識別碼")
+            waiting=expected-confirmed
+            # A local copy may share an outgoing ID or have a receipt from an earlier batch.
+            local_ids=[(eid,) for eid,key in local_keys.items() if keys[key] not in waiting]
             with self.db() as db:
-                event_upload.confirm(db, keys, expected)
+                event_upload.confirm(db, keys, confirmed)
                 db.executemany("DELETE FROM outbox WHERE event_id=?", local_ids)
                 db.executemany('DELETE FROM outbox_priority WHERE event_id=?', local_ids)
-            sent+=len(expected)
+            sent+=len(confirmed)
+            if waiting:
+                raise ConnectionError("管理中心未完整確認事件")
             if pause and stop is not None:
                 if stop.wait(pause):break
             elif pause:time.sleep(pause)
@@ -605,4 +619,4 @@ class Agent:
         finally:self.close_collectors()
 
 # Compatibility imports for the standard Agent API.
-from .endpoint_transport import NoRedirect, transport, request, private_write, enroll
+from .endpoint_transport import InventoryUpload, NoRedirect, transport, request, private_write, enroll

@@ -7,11 +7,49 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
-from .serialization import canonical
+from .serialization import canonical, digest
 from .transport_errors import CenterTransportError, network_error
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args):return None
+
+
+def software_reference(inventory):
+    software=inventory.get('software')
+    if isinstance(software,list) and software:
+        encoded=canonical(software)
+        if len(encoded)>256:
+            return digest(encoded)
+    return None
+
+
+class InventoryUpload:
+    """Negotiate reuse of the last acknowledged software list on the existing heartbeat."""
+    def __init__(self):
+        self.acknowledged=None
+
+    def send(self,post,body):
+        inventory=body['inventory']
+        reference=software_reference(inventory)
+        if reference is None:
+            self.acknowledged=None
+            return post(body)
+        if reference==self.acknowledged:
+            # Legacy servers reject a null inventory before modifying the device.
+            compact={**body,'inventory':None,'software_ref':reference,
+                     'inventory_fields':{k:v for k,v in inventory.items() if k!='software'}}
+            try:
+                reply=post(compact)
+            except CenterTransportError as exc:
+                if exc.http_status!=400:raise
+            else:
+                if reply.get('inventory_required') is not True:
+                    self.acknowledged=reply.get('software_ack')
+                    return reply
+        self.acknowledged=None
+        reply=post({**body,'software_ref':reference})
+        if reply.get('software_ack')==reference:self.acknowledged=reference
+        return reply
 
 
 def transport(server,ca=None):

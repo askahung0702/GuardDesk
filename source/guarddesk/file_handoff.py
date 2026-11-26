@@ -100,6 +100,7 @@ class HandoffQueue:
         self.verified_connector = verified_connector
         self.agent = agent
         self.buffer = []
+        self.buffer_ids = set()
         self.loss = 0
         self.report = {'status': 'queue_ready' if verified_connector else 'experimental_receiver_only', 'browser_connected': False}
         self.next_check = 0
@@ -127,10 +128,13 @@ class HandoffQueue:
         return self._admit(value)
 
     def _admit(self, value):
+        if value[2] in self.buffer_ids and value in self.buffer:
+            return True
         if len(self.buffer) >= MAX_BUFFER:
             self.gap(1)
             return False
         self.buffer.append(value)
+        self.buffer_ids.add(value[2])
         return True
 
     def gap(self, count):
@@ -194,6 +198,7 @@ class HandoffQueue:
                     pending += 1
             db.execute("INSERT OR REPLACE INTO state VALUES ('file_handoff_loss_v1',?)", (str(total_loss),))
         del self.buffer[:len(batch)]
+        self.buffer_ids = {value[2] for value in self.buffer}
         self.loss -= loss
         self.unreported = bool(total_loss)
         self.next_check = time.monotonic() + 5
